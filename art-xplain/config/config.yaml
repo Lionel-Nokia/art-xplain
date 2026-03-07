@@ -1,0 +1,16 @@
+project:
+  name: "Art-Xplain"
+paths:
+  # Root folder where you unzipped the Kaggle dataset 
+  kaggle_root: "data/kaggle"
+
+
+dataset:
+  # Keep only the top N styles (recommended 5-10 for a student project)
+  keep_top_styles: 10
+  # Minimum images required to keep a style
+  min_images_per_style: 300
+  # Split ratios
+  test_size: 0.1
+  val_size: 0.1
+
