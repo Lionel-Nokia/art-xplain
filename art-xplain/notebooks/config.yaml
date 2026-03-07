@@ -1,0 +1,37 @@
+project:
+  name: "StyleDNA WikiArt (Option B)"
+paths:
+  # Root folder where you unzipped the Kaggle dataset steubk/wikiart
+  kaggle_root: "data/kaggle"
+  # Optional hint to where images live under kaggle_root (leave as-is if unsure)
+  images_subdir_hint: "images"
+  # Output folder with Keras-ready splits: train/val/test/<style>/*.jpg
+  keras_root: "data/keras"
+  # Where embeddings will be stored (npy files)
+  embeddings_root: "embeddings"
+  # Where models will be stored
+  models_root: "models"
+dataset:
+  # Keep only the top N styles (recommended 5-10 for a student project)
+  keep_top_styles: 10
+  # Minimum images required to keep a style
+  min_images_per_style: 300
+  # Split ratios
+  test_size: 0.1
+  val_size: 0.1
+model:
+  img_size: 224
+  embed_dim: 256
+  backbone: "EfficientNetV2B0"
+  freeze_backbone: true
+train:
+  batch_size: 32
+  epochs_head: 8
+  epochs_finetune: 10
+  lr_head: 0.001
+  lr_finetune: 0.00001
+  finetune_last_layers: 60
+  early_stopping_patience: 4
+umap:
+  n_neighbors: 15
+  min_dist: 0.1
