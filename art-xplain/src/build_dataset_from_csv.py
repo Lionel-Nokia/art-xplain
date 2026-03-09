@@ -15,9 +15,11 @@ Key behaviour:
 
 from __future__ import annotations
 from pathlib import Path
+import argparse
 import pandas as pd
 import shutil
 import re
+import ast
 from sklearn.model_selection import train_test_split
 from .utils import load_config, ensure_dir
 
@@ -103,6 +105,70 @@ def auto_detect_images_root(kaggle_root: Path, images_subdir_hint: str) -> Path:
         raise FileNotFoundError("Impossible de trouver un dossier d'images dans kaggle_root")
     return best
 
+
+def detect_images_root_from_filenames(kaggle_root: Path, images_subdir_hint: str, filenames: pd.Series) -> Path:
+    """Choose the image root that resolves the most CSV filenames.
+
+    This is robust to multiple dataset layouts, including:
+    - `kaggle_root/images/<style>/<file>.jpg`
+    - `kaggle_root/<style>/<file>.jpg`
+    """
+
+    candidates = []
+    hinted = kaggle_root / images_subdir_hint
+    if images_subdir_hint and hinted.exists():
+        candidates.append(hinted)
+
+    if kaggle_root.exists():
+        candidates.append(kaggle_root)
+        candidates.extend(sorted(p for p in kaggle_root.iterdir() if p.is_dir()))
+
+    # Keep insertion order while removing duplicates
+    seen = set()
+    uniq_candidates = []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            uniq_candidates.append(c)
+
+    sample = filenames.astype(str).head(500)
+    best = None
+    best_hits = -1
+    for cand in uniq_candidates:
+        hits = sum(resolve_image_path(cand, rel) is not None for rel in sample)
+        if hits > best_hits:
+            best = cand
+            best_hits = hits
+
+    if best is None or best_hits <= 0:
+        # Fallback for legacy behavior if filename probing fails
+        return auto_detect_images_root(kaggle_root, images_subdir_hint)
+    return best
+
+
+def infer_label_from_filename_parent(filename_series: pd.Series) -> pd.Series | None:
+    """Infer labels from parent folder in filename paths when possible."""
+
+    parents = filename_series.astype(str).map(lambda x: Path(x).parent.as_posix())
+    valid = parents[parents != "."]
+    if len(valid) < 0.9 * len(parents):
+        return None
+    return valid
+
+
+def normalize_label_value(value: str) -> str:
+    """Normalize label values from CSV (including list-like strings)."""
+
+    text = str(value).strip()
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            parsed = ast.literal_eval(text)
+            if isinstance(parsed, list) and parsed:
+                text = str(parsed[0]).strip()
+        except (SyntaxError, ValueError):
+            pass
+    return text.replace("/", "_")
+
 def materialize_split(split_df: pd.DataFrame, split: str, out_root: Path, images_root: Path,
                       filename_col: str, label_col: str) -> tuple[int, int]:
     """Copy dataset rows into `out_root/{split}/{label}/` folders.
@@ -137,85 +203,36 @@ def materialize_split(split_df: pd.DataFrame, split: str, out_root: Path, images
 
     return copied, missing
 
-def main():
-    """Entry point: read config, filter CSV, split and materialize files.
+def clean_output_root(out_root: Path) -> None:
+    """Delete all generated files/folders under `out_root`."""
 
-    This function coordinates: locating the CSV, selecting the label column,
-    filtering styles by frequency, creating stratified splits, and writing
-    images into the output `keras_root` folder in a structure compatible with
-    `tf.keras` image utilities.
-    """
+    if not out_root.exists():
+        print(f"Clean: rien à supprimer, dossier absent: {out_root}")
+        return
 
-    cfg = load_config()
-    kaggle_root = Path(cfg["paths"]["kaggle_root"])
-    out_root = Path(cfg["paths"]["keras_root"])
-    images_hint = cfg["paths"].get("images_subdir_hint", "images")
+    removed = 0
+    for child in out_root.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+            removed += 1
+        else:
+            child.unlink()
+            removed += 1
+    print(f"Clean: {removed} élément(s) supprimé(s) dans {out_root}")
 
-    # Dataset configuration parameters
-    keep_top_styles = int(cfg["dataset"]["keep_top_styles"])
-    min_images_per_style = int(cfg["dataset"]["min_images_per_style"])
-    test_size = float(cfg["dataset"]["test_size"])
-    val_size = float(cfg["dataset"]["val_size"])
 
-    # Load the CSV catalogue and detect columns (case-insensitive matching)
-    csv_path = find_first_csv(kaggle_root)
-    df = pd.read_csv(csv_path)
-
-    cols = {c.lower(): c for c in df.columns}
-    if "filename" not in cols:
-        raise ValueError(f"CSV {csv_path.name}: colonne 'filename' introuvable. Colonnes={list(df.columns)}")
-
-    # Choose a label column from common candidates
-    label_col = None
-    for cand in ["style", "movement", "genre", "artist"]:
-        if cand in cols:
-            label_col = cols[cand]
-            break
-    if label_col is None:
-        raise ValueError("Aucune colonne label trouvée parmi: style/movement/genre/artist")
-
-    filename_col = cols["filename"]
-
-    # Locate images directory using hint or auto-detection
-    images_root = auto_detect_images_root(kaggle_root, images_hint)
-
-    # Keep only the filename and label columns, drop rows with missing values
-    df = df[[filename_col, label_col]].dropna()
-    df[label_col] = df[label_col].astype(str)
-
-    # Filter styles by minimum count and keep only the top-N frequent styles
-    counts = df[label_col].value_counts()
-    keep = counts[counts >= min_images_per_style].head(keep_top_styles).index
-    df = df[df[label_col].isin(keep)].copy()
-
-    print("CSV:", csv_path)
-    print("Images root:", images_root)
-    print("Label:", label_col)
-    print("Styles gardés:", list(keep))
-    print("Total rows after filtering:", len(df))
-
-    # Create stratified train/val/test splits preserving class proportions
-    train_df, tmp_df = train_test_split(
-        df, test_size=(test_size + val_size),
-        random_state=RANDOM_SEED, stratify=df[label_col]
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Build Keras train/val/test splits from a Kaggle-style CSV dataset."
     )
-    rel_val = val_size / (test_size + val_size)
-    val_df, test_df = train_test_split(
-        tmp_df, test_size=(1 - rel_val),
-        random_state=RANDOM_SEED, stratify=tmp_df[label_col]
+    parser.add_argument(
+        "--clean-out",
+        action="store_true",
+        help="Supprime tout le contenu de paths.keras_root avant de régénérer les splits.",
     )
-
-    # Ensure target folders exist
-    ensure_dir(out_root / "train")
-    ensure_dir(out_root / "val")
-    ensure_dir(out_root / "test")
-
-    # Materialize each split by copying resolved image files into label folders
-    for split_name, split_df in [("train", train_df), ("val", val_df), ("test", test_df)]:
-        copied, missing = materialize_split(
-            split_df, split_name, out_root, images_root, filename_col, label_col
-        )
-        print(f"{split_name}: copied={copied} missing={missing} total_rows={len(split_df)}")
-
-if __name__ == "__main__":
-    main()
+    parser.add_argument(
+        "--clean-only",
+        action="store_true",
+        help="Supprime tout le contenu de paths.keras_root puis quitte sans générer les splits.",
+    )
+    return parser.parse_args()
