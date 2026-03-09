@@ -2,11 +2,11 @@ project:
   name: "StyleDNA WikiArt (Option B)"
 paths:
   # Root folder where you unzipped the Kaggle dataset steubk/wikiart
-  kaggle_root: "data/kaggle"
+  kaggle_root: "data/in/kaggle-wikiart"
   # Optional hint to where images live under kaggle_root (leave as-is if unsure)
   images_subdir_hint: "images"
   # Output folder with Keras-ready splits: train/val/test/<style>/*.jpg
-  keras_root: "data/keras"
+  keras_root: "data/out"
   # Where embeddings will be stored (npy files)
   embeddings_root: "embeddings"
   # Where models will be stored
