@@ -1,5 +1,5 @@
 project:
-  name: "StyleDNA WikiArt (Option B)"
+  name: "Art-Xplain"
 paths:
   # Root folder where you unzipped the Kaggle dataset steubk/wikiart
   kaggle_root: "data/kaggle"
