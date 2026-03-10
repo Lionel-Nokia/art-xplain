@@ -162,7 +162,11 @@ def normalize_label_value(value: str) -> str:
     text = str(value).strip()
     if text.startswith("[") and text.endswith("]"):
         try:
+            # ast.literal_eval() attempt to parse list-like strings
+            # (e.g. "['Abstract Expressionism']") and take the first element
+            # ast.literal_eval("['Abstract Expressionism']")  # -> ['Abstract Expressionism']
             parsed = ast.literal_eval(text)
+
             if isinstance(parsed, list) and parsed:
                 text = str(parsed[0]).strip()
         except (SyntaxError, ValueError):
