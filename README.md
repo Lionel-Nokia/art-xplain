@@ -53,21 +53,6 @@ pip install -r requirements.txt
 
 ### Étape E — Lancer l'application Streamlit
 
-### Qu'est-ce que UMAP ?
-
-UMAP (Uniform Manifold Approximation and Projection) est une méthode de réduction de dimension.
-
-Dans ce projet, UMAP prend les embeddings haute dimension (`vectors.npy`) et les projette en 2D (`latent_2d.npy`) pour visualiser les œuvres sous forme de points.
-
-Intuition:
-- les œuvres proches dans l'espace d'embeddings restent proches sur la carte 2D
-- les groupes/amas visibles correspondent souvent à des styles similaires
-
-Paramètres principaux (`config.yaml`):
-- `umap.n_neighbors`: taille du voisinage local utilisé par UMAP
-- `umap.min_dist`: contrôle le degré de compacité des points en 2D
-
-
 ## 5) Notebook de préparation
 
 Définition (materialization): dans ce projet, la materialization correspond à la copie physique des images vers l’arborescence cible `data/out/train|val|test/<style>/...` à partir des splits calculés.
@@ -118,7 +103,7 @@ Les fonctions `detect_images_root_from_filenames`, `infer_label_from_filename_pa
 - OpenCV
 - Streamlit
 
-## 7) Model: (description du model choisi)
+## 7) Model: (description du modèle choisi)
 
   _- A faire pour notre session du mardi 10 (en cours LN)_
 
