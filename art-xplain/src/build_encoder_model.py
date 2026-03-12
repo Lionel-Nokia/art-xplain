@@ -53,30 +53,3 @@ def build_style_encoder_model(img_size: int, embed_dim: int, backbone: str, free
     x = tf.keras.layers.UnitNormalization(axis=1, name="l2norm")(x)
     model = tf.keras.Model(inputs, x, name="styledna_encoder")
     return model
-
-def main():
-    """Load configuration, build the encoder and save it to disk.
-
-    The configuration is expected to provide `model.img_size`, `model.embed_dim`,
-    `model.backbone`, `model.freeze_backbone`, and `paths.models_root`.
-    """
-
-    cfg = load_config()
-    # Parse configuration values (cast to the expected types)
-    img_size = int(cfg["model"]["img_size"])
-    embed_dim = int(cfg["model"]["embed_dim"])
-    backbone = str(cfg["model"]["backbone"])
-    # Note: depending on the config loader, this may already be a boolean
-    freeze_backbone = bool(cfg["model"]["freeze_backbone"])
-
-    # Build and display a summary of the model
-    model = build_style_encoder_model(img_size, embed_dim, backbone, freeze_backbone)
-    model.summary()
-
-    # Ensure the models directory exists and save the encoder there
-    models_root = ensure_dir(cfg["paths"]["models_root"])
-    model.save(models_root / "encoder.keras")
-    print("Saved:", (models_root / "encoder.keras").resolve())
-
-if __name__ == "__main__":
-    main()
