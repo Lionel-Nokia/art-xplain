@@ -41,17 +41,72 @@ pip install -r requirements.txt
 
 ## 3) Pipeline complet
 
-### Étape A — Construire les splits train/val/test
+### Étape 1 — Construire les splits train/val/test
 
-- _cf. notebook `step_1_build_dataset_step_by_step.ipynb`_
+  - #### Using notebook:
 
-### Étape B — Entraîner le model encodeur
+```bash
+# Open this notebook:
+art-xplain/art-xplain/notebooks/step_1_build_dataset_step_by_step.ipynb
+```
 
-### Étape C — Calculer les embeddings
+  - #### Using python:
 
-### Étape D — Projeter en 2D (UMAP)
+```bash
+python -m src.build_dataset_from_csv
+```
 
-### Étape E — Lancer l'application Streamlit
+Options utiles:
+- Nettoyer `data/out` puis régénérer:
+
+```bash
+python -m src.build_dataset_from_csv --clean-out
+```
+
+- Nettoyer uniquement `data/out`:
+
+```bash
+python -m src.build_dataset_from_csv --clean-only
+```
+
+### Étape 2 — Entraîner l'encodeur
+
+  - #### Using notebook:
+
+```bash
+# Open this notebook:
+art-xplain/art-xplain/notebooks/LN_step_2_train_encoder_step_by_step.ipynb
+```
+
+  - #### Using python:
+
+```bash
+python -m src.train_encoder_model
+```
+
+### Étape 3 — Calculer les embeddings
+
+  - #### Using notebook:
+
+```bash
+# Open this notebook:
+art-xplain/art-xplain/notebooks/LN_step_3_compute_embeddings_step_by_step.ipynb
+```
+
+
+```bash
+python -m src.compute_embeddings
+```
+
+Fichiers générés dans `embeddings/`:
+- `vectors.npy`
+- `labels.npy`
+- `filenames.npy`
+- `classnames.npy`
+
+### Étape 4 — Projeter en 2D (UMAP)
+
+
 
 ## 5) Notebook de préparation
 
@@ -92,8 +147,39 @@ Les fonctions `detect_images_root_from_filenames`, `infer_label_from_filename_pa
 - `materialize_split`:
   copie les images dans la structure finale `train/val/test/<style>/...` en résolvant les chemins sources et en comptant les fichiers copiés/manquants.
 
+## 6) Build model notebook
 
-## 6) Dépendances principales
+Notebook:
+- `notebooks/step_2_train_encoder_step_by_step.ipynb`
+
+Résumé des cellules (étapes):
+- Cellule 1-2: imports, détection de la racine projet.
+- Cellule 3: chargement de la config et des chemins utiles.
+- Cellule 4: vérification des dossiers `train` et `val`.
+- Cellule 5: lecture des hyperparamètres du modèle et d'entraînement.
+- Cellule 6: création des datasets TensorFlow.
+- Cellule 7: construction de l'encodeur (backbone + embedding).
+- Cellule 8: construction du classifieur (tête softmax).
+- Cellule 9: callbacks + entraînement de la tête (phase 1).
+- Cellule 10: fine-tuning optionnel (phase 2).
+- Cellule 11: sauvegarde de l'encodeur.
+
+## 7) Compute embeddings notebook
+
+Notebook:
+- `notebooks/step_3_compute_embeddings_step_by_step.ipynb`
+
+Résumé des cellules (étapes):
+- Cellule 1-2: imports, détection de la racine projet.
+- Cellule 3: chargement de la config et des chemins utiles.
+- Cellule 4: collecte des chemins d'images et labels.
+- Cellule 5: création du dataset TensorFlow.
+- Cellule 6: chargement de l'encodeur entraîné.
+- Cellule 7: calcul des embeddings (batches).
+- Cellule 8: sauvegarde des fichiers `.npy`.
+
+
+## 7) Dépendances principales
 
 - TensorFlow
 - NumPy
@@ -103,11 +189,11 @@ Les fonctions `detect_images_root_from_filenames`, `infer_label_from_filename_pa
 - OpenCV
 - Streamlit
 
-## 7) Model: (description du modèle choisi)
+## 8) Model: (description du modèle choisi)
 
   _- A faire pour notre session du mardi 10 (en cours LN)_
 
 
-## 8) Notes
+## 9) Notes
 
 - Le script de build dataset est tolérant aux variations de format CSV et peut inférer le label depuis le dossier parent de `filename`.
