@@ -212,32 +212,6 @@ if uploaded is not None:
 
     st.markdown(f"**Style suggéré :** {best['style']}")
 
-
-    # # ---------------------------------------------------------------
-    # # Affichage comparatif horizontal
-    # # ---------------------------------------------------------------
-    # st.subheader("Comparaison visuelle")
-
-    # cols = st.columns(len(results) + 1)
-
-    # with cols[0]:
-    #     st.image(
-    #         query_path,
-    #         caption="Image requête",
-    #         width="stretch",
-    #     )
-
-    # for i, res in enumerate(results, start=1):
-    #     with cols[i]:
-    #         st.image(
-    #             res["filepath"],
-    #             caption=f"Top {i} — {res['style']} ({res['similarity']:.3f})",
-    #             width="stretch",
-    #         )
-
-    # st.markdown(f"**Style suggéré :** {best['style']}")
-
-
     # ---------------------------------------------------------------
     # Tableau récapitulatif
     # ---------------------------------------------------------------

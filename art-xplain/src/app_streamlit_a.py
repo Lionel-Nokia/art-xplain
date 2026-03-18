@@ -1,14 +1,13 @@
 
 
-
 """
 Application Streamlit pour rechercher des œuvres similaires visuellement
 à partir d'une image envoyée par l'utilisateur.
 
 Fonctionnalités :
 - Upload d'une image
-- Recherche des 4 œuvres les plus similaires
-- Affichage de l'image source au-dessus des 4 images de comparaison
+- Recherche des 3 œuvres les plus similaires
+- Affichage horizontal : requête + top-3
 - Affichage optionnel d'une explication visuelle avec Grad-CAM
 - Visualisation optionnelle dans un espace latent 2D (UMAP) avec Plotly
 """
@@ -160,7 +159,7 @@ uploaded = st.file_uploader(
     type=["jpg", "jpeg", "png", "webp"],
 )
 
-k = 4
+k = 3
 
 show_gradcam = st.checkbox(
     "Afficher Grad-CAM (top-1)",
@@ -190,53 +189,28 @@ if uploaded is not None:
     best = results[0]
 
     # ---------------------------------------------------------------
-    # Affichage : image source au-dessus des images de comparaison
+    # Affichage comparatif horizontal
     # ---------------------------------------------------------------
-    st.subheader("Image source")
-    st.image(
-        query_path,
-        caption="Image requête",
-        width="stretch",
-    )
-
     st.subheader("Comparaison visuelle")
-    cols = st.columns(min(4, len(results)))
 
-    for i, res in enumerate(results):
-        with cols[i % len(cols)]:
+    cols = st.columns(len(results) + 1)
+
+    with cols[0]:
+        st.image(
+            query_path,
+            caption="Image requête",
+            width="stretch",
+        )
+
+    for i, res in enumerate(results, start=1):
+        with cols[i]:
             st.image(
                 res["filepath"],
-                caption=f"Top {i + 1} — {res['style']} ({res['similarity']:.3f})",
+                caption=f"Top {i} — {res['style']} ({res['similarity']:.3f})",
                 width="stretch",
             )
 
     st.markdown(f"**Style suggéré :** {best['style']}")
-
-
-    # # ---------------------------------------------------------------
-    # # Affichage comparatif horizontal
-    # # ---------------------------------------------------------------
-    # st.subheader("Comparaison visuelle")
-
-    # cols = st.columns(len(results) + 1)
-
-    # with cols[0]:
-    #     st.image(
-    #         query_path,
-    #         caption="Image requête",
-    #         width="stretch",
-    #     )
-
-    # for i, res in enumerate(results, start=1):
-    #     with cols[i]:
-    #         st.image(
-    #             res["filepath"],
-    #             caption=f"Top {i} — {res['style']} ({res['similarity']:.3f})",
-    #             width="stretch",
-    #         )
-
-    # st.markdown(f"**Style suggéré :** {best['style']}")
-
 
     # ---------------------------------------------------------------
     # Tableau récapitulatif
