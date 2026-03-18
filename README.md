@@ -48,14 +48,14 @@ pip install -r requirements.txt
 
 ### Étape 1 — Construire les splits train/val/test
 
-  - #### Using notebook:
+  - #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/step_1_build_dataset_step_by_step.ipynb
 ```
 
-  - #### Using python:
+  - #### Option python:
 
 ```bash
 python -m src.build_dataset_from_csv
@@ -76,14 +76,14 @@ python -m src.build_dataset_from_csv --clean-only
 
 ### Étape 2 — Entraîner l'encodeur
 
-  - #### Using notebook:
+  - #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/LN_step_2_train_encoder_step_by_step.ipynb
 ```
 
-  - #### Using python:
+  - #### Option python:
 
 ```bash
 python -m src.train_encoder_model
@@ -91,13 +91,14 @@ python -m src.train_encoder_model
 
 ### Étape 3 — Calculer les embeddings
 
-  - #### Using notebook:
+  - #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/LN_step_3_compute_embeddings_step_by_step.ipynb
 ```
 
+ - #### Option python:
 
 ```bash
 python -m src.compute_embeddings
@@ -236,13 +237,13 @@ Résumé des cellules (étapes):
 
 - (Entraînement uniquement) Tête de classification
     Dense + softmax vers n_classes styles.
-    Deux phases:
-        Phase 1: entraînement de la tête (backbone gelé).
-        Phase 2 (optionnel): fine‑tuning des dernières couches du backbone.
+    - Deux phases:
+        - Phase 1: entraînement de la tête (backbone gelé).
+        - Phase 2 (optionnel): fine‑tuning des dernières couches du backbone.
 
 - Usage
-    Retrieval: on garde l’embedding L2 pour comparer les images.
-    Grad‑CAM: visualisation des zones qui expliquent la similarité.
+    - Retrieval: on garde l’embedding L2 pour comparer les images.
+    - Grad‑CAM: visualisation des zones qui expliquent la similarité.
 
 ## 9) Notes
 
