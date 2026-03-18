@@ -28,6 +28,13 @@ IMG_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 # Fixed RNG seed to make splits reproducible
 RANDOM_SEED = 42
 
+def limit_per_class(df, label_col, max_per_class):
+    #print("df[label_col].value_counts():", df[label_col].value_counts())
+    return (
+        df.groupby(label_col, group_keys=False)
+          .apply(lambda x: x.sample(min(len(x), max_per_class)))
+    )
+
 def find_first_csv(root: Path) -> Path:
     """Find the most appropriate CSV file under `root`.
 
