@@ -15,6 +15,11 @@ Le pipeline couvre:
 - recherche top-k par similarité cosinus
 - explication visuelle de similarité avec Grad-CAM
 - démo interactive Streamlit
+## Architecture
+
+![Architecture](images/archi-generale.png)
+
+
 
 ## 1) Structure des données
 
@@ -106,7 +111,20 @@ Fichiers générés dans `embeddings/`:
 
 ### Étape 4 — Projeter en 2D (UMAP)
 
-_LN working on this feature_
+```bash
+cd art-xplain/artxplain
+python -m src.visualization_umap
+```
+
+Fichier généré:
+- `latent_2d.npy`
+
+### Étape 5 — Lancer l'application Streamlit
+
+```bash
+cd art-xplain/artxplain
+streamlit run src/app_streamlit.py
+```
 
 ## 5) Notebook de préparation
 
@@ -191,8 +209,40 @@ Résumé des cellules (étapes):
 
 ## 8) Model: (description du modèle choisi)
 
-  _- A faire pour notre session du mardi 10 (en cours LN)_
 
+
+![Architecture model](images/archi-artxplain.png)
+
+### Description
+**Étapes du modèle (encodeur + entraînement)**
+
+- Entrée image:
+    Une image est chargée et redimensionnée en img_size × img_size × 3.
+
+- Prétraitement EfficientNetV2
+    Normalisation/scale adaptée au backbone EfficientNetV2.
+
+- Backbone EfficientNetV2B0
+    Réseau convolutionnel pré-entraîné ImageNet (sans la tête finale).
+
+- GlobalAveragePooling2D
+    Agrège les cartes de features en un vecteur fixe.
+
+- Dense (projection)
+    Projection vers la dimension d’embedding embed_dim (ex: 256).
+
+- UnitNormalization (L2)
+    Normalise l’embedding sur la sphère unitaire pour la similarité cosinus.
+
+- (Entraînement uniquement) Tête de classification
+    Dense + softmax vers n_classes styles.
+    Deux phases:
+        Phase 1: entraînement de la tête (backbone gelé).
+        Phase 2 (optionnel): fine‑tuning des dernières couches du backbone.
+
+- Usage
+    Retrieval: on garde l’embedding L2 pour comparer les images.
+    Grad‑CAM: visualisation des zones qui expliquent la similarité.
 
 ## 9) Notes
 
