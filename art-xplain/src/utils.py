@@ -3,7 +3,6 @@ from pathlib import Path
 import yaml
 
 def load_config(config_path: str | Path = "config/config.yaml") -> dict:
-#def load_config(config_path: str | Path = "config.yaml") -> dict:
     config_path = Path(config_path)
     if not config_path.exists():
         raise FileNotFoundError(f"config.yaml introuvable à {config_path.resolve()}")
