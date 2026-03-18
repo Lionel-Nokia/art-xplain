@@ -9,6 +9,33 @@ from __future__ import annotations
 import tensorflow as tf
 from .utils import load_config, ensure_dir
 
+
+def limit_max_files(df, max_files=None, shuffle=True, random_state=42):
+    """
+    Limite le nombre de lignes (fichiers) dans un DataFrame.
+
+    Args:
+        df (pd.DataFrame): DataFrame contenant les fichiers.
+        max_files (int | None): nombre maximum de fichiers à garder.
+        shuffle (bool): mélanger avant de couper pour éviter les biais.
+        random_state (int): seed pour reproductibilité.
+
+    Returns:
+        pd.DataFrame
+    """
+
+    if max_files is None:
+        return df
+
+    if shuffle:
+        df = df.sample(frac=1, random_state=random_state)
+
+    if len(df) > max_files:
+        df = df.head(max_files)
+
+    return df
+
+
 def build_style_encoder_model(img_size: int, embed_dim: int, backbone: str, freeze_backbone: bool):
     """Create a Keras encoder that outputs L2-normalized embeddings.
 
