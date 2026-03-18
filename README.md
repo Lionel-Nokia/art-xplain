@@ -106,7 +106,7 @@ Fichiers générés dans `embeddings/`:
 
 ### Étape 4 — Projeter en 2D (UMAP)
 
-
+_LN working on this feature_
 
 ## 5) Notebook de préparation
 
