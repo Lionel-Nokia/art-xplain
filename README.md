@@ -15,6 +15,11 @@ Le pipeline couvre:
 - recherche top-k par similarité cosinus
 - explication visuelle de similarité avec Grad-CAM
 - démo interactive Streamlit
+## Architecture
+
+![Architecture](images/archi-generale.png)
+
+
 
 ## 1) Structure des données
 
@@ -43,14 +48,14 @@ pip install -r requirements.txt
 
 ### Étape 1 — Construire les splits train/val/test
 
-  - #### Using notebook:
+  - #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/step_1_build_dataset_step_by_step.ipynb
 ```
 
-  - #### Using python:
+  - #### Option python:
 
 ```bash
 python -m src.build_dataset_from_csv
@@ -71,14 +76,14 @@ python -m src.build_dataset_from_csv --clean-only
 
 ### Étape 2 — Entraîner l'encodeur
 
-  - #### Using notebook:
+  - #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/LN_step_2_train_encoder_step_by_step.ipynb
 ```
 
-  - #### Using python:
+  - #### Option python:
 
 ```bash
 python -m src.train_encoder_model
@@ -86,13 +91,14 @@ python -m src.train_encoder_model
 
 ### Étape 3 — Calculer les embeddings
 
-  - #### Using notebook:
+  - #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/LN_step_3_compute_embeddings_step_by_step.ipynb
 ```
 
+ - #### Option python:
 
 ```bash
 python -m src.compute_embeddings
@@ -106,7 +112,20 @@ Fichiers générés dans `embeddings/`:
 
 ### Étape 4 — Projeter en 2D (UMAP)
 
+```bash
+cd art-xplain/artxplain
+python -m src.visualization_umap
+```
 
+Fichier généré:
+- `latent_2d.npy`
+
+### Étape 5 — Lancer l'application Streamlit
+
+```bash
+cd art-xplain/artxplain
+streamlit run src/app_streamlit.py
+```
 
 ## 5) Notebook de préparation
 
@@ -191,8 +210,40 @@ Résumé des cellules (étapes):
 
 ## 8) Model: (description du modèle choisi)
 
-  _- A faire pour notre session du mardi 10 (en cours LN)_
 
+
+![Architecture model](images/archi-artxplain.png)
+
+### Description
+**Étapes du modèle (encodeur + entraînement)**
+
+- Entrée image:
+    Une image est chargée et redimensionnée en img_size × img_size × 3.
+
+- Prétraitement EfficientNetV2
+    Normalisation/scale adaptée au backbone EfficientNetV2.
+
+- Backbone EfficientNetV2B0
+    Réseau convolutionnel pré-entraîné ImageNet (sans la tête finale).
+
+- GlobalAveragePooling2D
+    Agrège les cartes de features en un vecteur fixe.
+
+- Dense (projection)
+    Projection vers la dimension d’embedding embed_dim (ex: 256).
+
+- UnitNormalization (L2)
+    Normalise l’embedding sur la sphère unitaire pour la similarité cosinus.
+
+- (Entraînement uniquement) Tête de classification
+    Dense + softmax vers n_classes styles.
+    - Deux phases:
+        - Phase 1: entraînement de la tête (backbone gelé).
+        - Phase 2 (optionnel): fine‑tuning des dernières couches du backbone.
+
+- Usage
+    - Retrieval: on garde l’embedding L2 pour comparer les images.
+    - Grad‑CAM: visualisation des zones qui expliquent la similarité.
 
 ## 9) Notes
 
