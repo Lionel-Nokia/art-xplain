@@ -1,0 +1,13 @@
+{
+  "num_samples": 3189,
+  "vector_dim": 256,
+  "num_classes": 5,
+  "umap_shape": [
+    3189,
+    2
+  ],
+  "vectors_sha1": "27f65532b9a59b71e6b78b2e00cfe98092aa3893",
+  "labels_sha1": "4f63aaa877569168666e9613447c8fdb52588c04",
+  "filenames_sha1": "df09483ee771824ae8660ce76a9338f654f66cfb",
+  "classnames_sha1": "578761a2eac30438968d82931ccd5a77d41e186c"
+}
