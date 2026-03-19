@@ -1,485 +1,346 @@
-"""
-================================================================================
-Art-Xplain - Application Streamlit de recherche de similarité stylistique
-================================================================================
-
-Objectif
---------
-Cette application permet à un utilisateur de charger une image d'œuvre d'art
-(ou d'image assimilée), puis de rechercher dans une base d'images les œuvres
-les plus proches visuellement / stylistiquement.
-
-Fonctionnalités principales
----------------------------
-1. Upload d'une image utilisateur
-2. Recherche des k œuvres les plus similaires
-3. Affichage de l'image requête
-4. Affichage des résultats visuels avec score de similarité
-5. Affichage d'un tableau récapitulatif
-6. Affichage optionnel d'une explication Grad-CAM sur le meilleur résultat
-7. Affichage optionnel d'une projection UMAP interactive des embeddings
-
-Architecture logique
---------------------
-L'application repose sur deux briques principales :
-
-- Une interface Streamlit
-  -> gère l'upload, l'affichage et les interactions utilisateur
-
-- Un moteur métier (StyleRetriever)
-  -> gère la recherche d'images similaires
-  -> gère éventuellement l'explication Grad-CAM
-  -> encapsule la logique ML / retrieval
-
-Dépendances importantes
------------------------
-- Streamlit : interface web
-- NumPy : tableaux numériques
-- Pandas : tableau récapitulatif des résultats
-- Plotly : visualisation interactive UMAP
-- src.utils.load_config : chargement de la configuration projet
-- src.retrieval.StyleRetriever : moteur de recherche stylistique
-
-Convention
-----------
-Ce fichier cherche à être :
-- lisible
-- pédagogique
-- robuste
-- facile à maintenir
-
-Les commentaires ci-dessous expliquent :
-- ce que fait chaque bloc
-- pourquoi il est présent
-- ce qu'il attend en entrée
-- ce qu'il produit en sortie
-- les cas limites éventuels
-================================================================================
-"""
-
 from __future__ import annotations
+# Active l'évaluation différée des annotations de type.
+# Concrètement, cela permet d'écrire des annotations modernes comme list[str]
+# sans que Python essaie de les résoudre immédiatement au moment du chargement.
+# C'est utile pour :
+# 1) améliorer la compatibilité selon les versions de Python,
+# 2) éviter certains problèmes de références circulaires dans les types,
+# 3) garder un code plus lisible avec les hints modernes.
 
-# =============================================================================
-# IMPORTS STANDARDS PYTHON
-# =============================================================================
-# sys
-# ----
-# Utilisé ici pour modifier dynamiquement le chemin de recherche des modules
-# Python (sys.path). Cela permet d'importer les modules internes du projet
-# même si le script est lancé depuis un autre répertoire.
 import sys
+# Module standard donnant accès à des informations et réglages liés à l'interpréteur Python.
+# Ici, il sert surtout à manipuler sys.path, c'est-à-dire la liste des dossiers
+# dans lesquels Python cherche les modules à importer.
 
-# tempfile
-# --------
-# Permet de créer un fichier temporaire sur disque.
-# C'est utile car l'image chargée via Streamlit est en mémoire, alors que
-# le moteur de retrieval semble attendre un chemin de fichier.
 import tempfile
+# Module standard permettant de créer des fichiers temporaires.
+# Dans cette application, on s'en sert pour écrire l'image uploadée par l'utilisateur
+# sur le disque afin que le moteur de recherche puisse la lire comme un vrai fichier.
 
-# Path
-# ----
-# Classe moderne de manipulation de chemins (pathlib).
-# Plus robuste et plus lisible que les concaténations de chaînes.
 from pathlib import Path
+# Path offre une manière moderne, robuste et lisible de manipuler des chemins de fichiers.
+# C'est préférable aux simples chaînes de caractères, car on peut faire des opérations
+# comme .stem, .suffix, / pour concaténer des chemins, etc.
 
-# =============================================================================
-# IMPORTS DATA / VISUALISATION / INTERFACE
-# =============================================================================
-# numpy
-# -----
-# Utilisé pour :
-# - convertir / valider des tableaux
-# - charger les embeddings et métadonnées
-# - retrouver l'indice d'un fichier
 import numpy as np
+# NumPy est utilisé ici pour manipuler les tableaux numériques,
+# en particulier les embeddings, labels, projections UMAP et autres structures
+# de données liées au moteur de similarité.
 
-# pandas
-# ------
-# Utilisé pour construire un tableau récapitulatif des résultats de similarité.
 import pandas as pd
+# Pandas sert à construire des DataFrames afin d'afficher des tableaux clairs dans Streamlit,
+# par exemple le résumé des résultats ou les données préparées pour la visualisation UMAP.
 
-# plotly.express
-# --------------
-# Utilisé pour construire rapidement un scatter plot interactif UMAP.
 import plotly.express as px
+# Interface haut niveau de Plotly, pratique pour créer rapidement des graphiques,
+# ici notamment le nuage de points UMAP.
 
-# plotly.graph_objects
-# --------------------
-# Utilisé pour ajouter des traces personnalisées au graphique Plotly,
-# en particulier pour surligner le meilleur résultat (top-1).
 import plotly.graph_objects as go
+# Interface plus bas niveau de Plotly, utile quand on veut ajouter des traces personnalisées,
+# par exemple pour surligner le meilleur résultat (top-1) dans l'UMAP.
 
-# streamlit
-# ---------
-# Framework principal de l'application web interactive.
 import streamlit as st
+# Streamlit est le framework web utilisé pour créer l'application interactive.
+# Toutes les instructions d'interface passent par l'objet st :
+# st.title, st.image, st.dataframe, st.checkbox, st.file_uploader, etc.
+
 
 # =============================================================================
 # GESTION DES IMPORTS INTERNES AU PROJET
 # =============================================================================
-# But
-# ---
-# Garantir que le dossier racine du projet est visible dans le PYTHONPATH,
-# afin de pouvoir importer les modules internes situés sous "src/".
-#
-# Pourquoi c'est nécessaire
-# -------------------------
-# Selon la manière dont Streamlit lance le script, le répertoire courant n'est
-# pas toujours celui attendu. Sans cette adaptation, l'import :
-#
-#     from src.utils import load_config
-#
-# pourrait échouer avec un ModuleNotFoundError.
-#
-# Hypothèse de structure de projet
-# --------------------------------
-# projet/
-# ├── src/
-# │   ├── utils.py
-# │   └── retrieval.py
-# └── app/
-#     └── streamlit_app.py
-#
-# Ici, on suppose que ce fichier est situé dans un sous-dossier du projet.
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# On ajoute la racine du projet au sys.path si elle n'y figure pas déjà.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# __file__ représente le chemin du fichier Python courant.
+# Path(__file__) le convertit en objet Path.
+# .resolve() transforme ce chemin en chemin absolu canonique.
+# .parents[1] remonte de deux niveaux dans l'arborescence.
+# L'objectif est de retrouver la racine du projet pour pouvoir importer les modules internes.
+# Exemple typique : si ce script est dans project/app/app_streamlit.py,
+# alors parents[1] peut pointer vers project/.
+
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+# Python cherche les imports dans les dossiers listés dans sys.path.
+# On ajoute ici la racine du projet au début de cette liste (index 0)
+# pour s'assurer que les imports internes comme src.utils et src.retrieval fonctionnent.
+# Le test préalable évite d'ajouter plusieurs fois le même chemin.
 
-# Import d'une fonction utilitaire de chargement de configuration.
-# Cette configuration contient probablement des chemins utiles
-# (ex : dossier des embeddings, modèles, ressources, etc.).
 from src.utils import load_config
+# Importe une fonction utilitaire interne censée charger la configuration du projet.
+# On l'utilise plus loin pour récupérer les chemins vers les embeddings et autres ressources.
 
-# Import du moteur principal de recherche visuelle / stylistique.
-# Cette classe constitue le cœur métier de l'application.
 from src.retrieval import StyleRetriever
+# Importe la classe centrale du moteur de recherche de similarité stylistique.
+# C'est elle qui va probablement encapsuler :
+# - le chargement du modèle,
+# - l'extraction d'embeddings,
+# - la comparaison de similarité,
+# - et éventuellement Grad-CAM.
 
 
 # =============================================================================
 # CONFIGURATION GÉNÉRALE DE L'INTERFACE STREAMLIT
 # =============================================================================
-# But
-# ---
-# Définir l'apparence générale de la page et le titre principal affiché.
-#
-# layout="wide"
-# -------------
-# Permet d'utiliser une largeur plus importante, utile pour :
-# - l'affichage côte à côte des images
-# - l'affichage de l'UMAP
-# - l'affichage d'un tableau large
-st.set_page_config(page_title="Art-Xplain", layout="wide")
 
-# Titre principal visible en haut de l'application.
+st.set_page_config(page_title="Art-Xplain", layout="wide")
+# Configure la page Streamlit avant tout rendu visuel important.
+# page_title : titre de l'onglet du navigateur.
+# layout="wide" : utilise toute la largeur disponible, ce qui est très utile
+# pour afficher plusieurs images côte à côte et une visualisation UMAP large.
+
 st.title("Art-Xplain — Similarité stylistique")
+# Affiche le titre principal de l'application en haut de la page.
+# C'est le premier élément visible par l'utilisateur.
 
 
 # =============================================================================
 # CHARGEMENT DU MOTEUR DE RETRIEVAL
 # =============================================================================
+
 @st.cache_resource
 def get_retriever() -> StyleRetriever:
     """
     Crée et retourne l'objet StyleRetriever.
 
-    But
-    ---
-    Initialiser une seule fois le moteur de recherche, même si Streamlit
-    relance le script à chaque interaction utilisateur.
-
-    Pourquoi utiliser @st.cache_resource ?
-    -------------------------------------
-    Dans Streamlit, chaque interaction (checkbox, multiselect, upload, etc.)
-    peut provoquer un rerun complet du script.
-
-    Si StyleRetriever charge :
-    - un modèle de deep learning,
-    - des embeddings,
-    - un index de recherche,
-    - un backend lourd,
-    alors sa recréation à chaque rerun serait coûteuse et inutile.
-
-    Ce cache permet donc :
-    - d'améliorer fortement les performances,
-    - d'éviter les temps de chargement répétés,
-    - de stabiliser l'expérience utilisateur.
-
-    Retour
-    ------
-    StyleRetriever
-        Instance du moteur de recherche stylistique.
+    L'utilisation de @st.cache_resource permet d'éviter de recharger
+    inutilement le moteur de recherche à chaque interaction Streamlit.
     """
     return StyleRetriever()
+# Cette fonction instancie le moteur principal de recherche.
+# Le décorateur @st.cache_resource indique à Streamlit que le résultat
+# est une ressource lourde et durable (par ex. modèle ML, index en mémoire,
+# objets coûteux à construire).
+# Sans ce cache, chaque interaction utilisateur (cocher une case, filtrer un style,
+# uploader une image) pourrait recharger le moteur, ce qui serait très lent.
+# Le type de retour annoncé -> StyleRetriever aide la lisibilité et l'autocomplétion.
 
 
 # =============================================================================
 # FONCTIONS UTILITAIRES
 # =============================================================================
+
 def _coerce_object_array(values) -> np.ndarray:
     """
     Convertit une collection en tableau NumPy de type object.
-
-    But
-    ---
-    Uniformiser certains tableaux chargés depuis des fichiers .npy ou .npz,
-    notamment ceux contenant :
-    - des chaînes de caractères,
-    - des chemins de fichiers,
-    - des objets hétérogènes.
-
-    Pourquoi dtype=object ?
-    -----------------------
-    Lorsque NumPy charge certaines structures, les types peuvent être :
-    - implicites,
-    - incohérents,
-    - ou moins pratiques pour les comparaisons / affichages.
-
-    En forçant dtype=object :
-    - on garde une représentation souple,
-    - on évite certaines conversions automatiques indésirables.
-
-    Paramètres
-    ----------
-    values : any
-        Données à convertir.
-
-    Retour
-    ------
-    np.ndarray
-        Tableau NumPy avec dtype=object.
     """
     return np.asarray(values, dtype=object)
+# np.asarray convertit 'values' en tableau NumPy sans recopier inutilement les données
+# si elles sont déjà sous une forme compatible.
+# dtype=object force un type très souple, utile quand les éléments ne sont pas
+# purement numériques ou homogènes (par ex. chemins, noms de classes, objets divers).
+# Le préfixe _ dans le nom suggère qu'il s'agit d'une fonction utilitaire interne au module.
 
 
 def _build_style_names(labels: np.ndarray, classnames: np.ndarray) -> list[str]:
     """
     Transforme des labels numériques en noms de styles lisibles.
-
-    But
-    ---
-    Associer à chaque label numérique un nom explicite de style pour
-    l'affichage dans l'UMAP.
-
-    Exemple
-    -------
-    labels      = [0, 2, 1]
-    classnames  = ["Baroque", "Cubisme", "Impressionnisme"]
-
-    Résultat :
-    ["Baroque", "Impressionnisme", "Cubisme"]
-
-    Cas limites gérés
-    -----------------
-    - label non convertible en entier
-    - label hors bornes
-    - structure classnames incohérente
-
-    Dans ces cas, on renvoie un texte de secours :
-        "Classe X"
-
-    Paramètres
-    ----------
-    labels : np.ndarray
-        Tableau des labels numériques.
-    classnames : np.ndarray
-        Tableau des noms de classes.
-
-    Retour
-    ------
-    list[str]
-        Liste des noms lisibles des styles.
     """
     style_names: list[str] = []
+    # On prépare une liste vide qui contiendra les noms de styles correspondant
+    # à chaque label numérique.
+    # Exemple : 0 -> "Impressionnisme", 1 -> "Cubisme", etc.
 
     for lab in labels:
+        # On parcourt chaque label issu du jeu de données ou des embeddings.
+        # labels est supposé contenir des identifiants de classe.
         try:
             idx = int(lab)
+            # On essaie de convertir le label en entier.
+            # C'est utile si lab arrive sous forme np.int64, float, ou même string numérique.
 
-            # Vérification de la validité de l'indice dans classnames
             if 0 <= idx < len(classnames):
                 style_names.append(str(classnames[idx]))
+                # Cas nominal : le label est valide et correspond bien à un index de classnames.
+                # On convertit le nom de classe en string pour homogénéiser les types.
             else:
-                # Cas où le label pointe vers un indice inexistant
                 style_names.append(f"Classe {lab}")
-
+                # Cas de secours : le label est en dehors de la plage attendue.
+                # On ne plante pas l'application ; on génère un nom générique.
         except Exception:
-            # Cas où le label ne peut pas être converti en entier
             style_names.append(f"Classe {lab}")
+            # Si la conversion en entier échoue pour une raison quelconque,
+            # on adopte aussi un nom générique.
+            # L'idée générale de cette fonction est la robustesse :
+            # l'interface ne doit pas casser parce qu'un label est mal formé.
 
     return style_names
+    # Renvoie la liste finale des noms lisibles.
 
 
 def _find_best_index(filenames: np.ndarray, best_filepath: str) -> int | None:
     """
     Retrouve l'indice du meilleur résultat dans la liste des fichiers UMAP.
-
-    But
-    ---
-    Le moteur de retrieval renvoie un fichier top-1.
-    Pour le mettre en évidence dans la visualisation UMAP, il faut retrouver
-    à quel point du nuage ce fichier correspond.
-
-    Stratégie
-    ---------
-    - convertir tous les chemins en chaînes
-    - comparer à best_filepath
-    - renvoyer l'indice du premier match trouvé
-
-    Paramètres
-    ----------
-    filenames : np.ndarray
-        Tableau des chemins de fichiers connus dans l'espace latent.
-    best_filepath : str
-        Chemin complet du meilleur résultat retourné.
-
-    Retour
-    ------
-    int | None
-        Indice du fichier s'il est trouvé, sinon None.
-
-    Cas d'échec
-    -----------
-    Si aucun fichier ne correspond exactement, la fonction retourne None.
     """
     filenames_str = np.asarray([str(fp) for fp in filenames], dtype=object)
+    # On convertit tous les éléments de filenames en chaînes de caractères.
+    # Pourquoi ? Parce qu'ils peuvent être de type Path, numpy scalar, ou autre,
+    # et qu'on veut faire une comparaison homogène avec best_filepath.
 
     matches = np.where(filenames_str == str(best_filepath))[0]
+    # np.where retourne les indices où la condition est vraie.
+    # Ici, on cherche le ou les fichiers dont le chemin correspond exactement
+    # au chemin du meilleur résultat retourné par le moteur.
+    # Le [0] récupère le tableau des indices.
 
     if len(matches) == 0:
         return None
+        # Aucun fichier correspondant n'a été trouvé dans la liste UMAP.
+        # On renvoie None pour indiquer l'absence de correspondance.
 
     return int(matches[0])
+    # Si plusieurs matches existent, on prend le premier.
+    # En pratique, il devrait idéalement n'y en avoir qu'un seul.
+
+
+def _prettify_token(text: str) -> str:
+    """
+    Transforme une chaîne de type slug en texte lisible.
+
+    Exemples :
+        'vincent-van-gogh' -> 'Vincent Van Gogh'
+        'la-nuit-etoilee'  -> 'La Nuit Etoilee'
+    """
+    text = str(text).strip().replace("-", " ")
+    # str(text) garantit qu'on travaille sur une chaîne.
+    # .strip() retire les espaces en début et fin.
+    # .replace("-", " ") remplace les tirets par des espaces
+    # afin de convertir un slug en texte plus naturel.
+
+    return text.title()
+    # .title() met une majuscule à chaque mot.
+    # Exemple : "vincent van gogh" -> "Vincent Van Gogh".
+
+
+def _extract_artist_and_title(filepath: str) -> tuple[str, str]:
+    """
+    Extrait le nom de l'artiste et le nom du tableau à partir du nom de fichier.
+
+    Format attendu :
+        nom-de-l-artiste_nom-du-tableau.jpg
+    """
+    filename = Path(str(filepath)).stem
+    # Convertit le chemin reçu en objet Path, puis récupère uniquement le nom du fichier
+    # sans son extension.
+    # Exemple : "/data/img/van-gogh_starry-night.jpg" -> "van-gogh_starry-night"
+
+    if "_" not in filename:
+        return "Inconnu", _prettify_token(filename)
+        # Si le séparateur '_' n'est pas présent, on ne peut pas distinguer artiste et tableau.
+        # On adopte donc une stratégie de repli :
+        # - artiste = "Inconnu"
+        # - titre = nom du fichier rendu plus lisible
+
+    artist_raw, title_raw = filename.split("_", 1)
+    # On découpe au premier underscore uniquement.
+    # Le paramètre 1 est important : s'il y a d'autres underscores dans le titre,
+    # ils restent dans la seconde partie au lieu de provoquer trop de segments.
+
+    artist = _prettify_token(artist_raw)
+    # Rend le nom d'artiste lisible.
+
+    title = _prettify_token(title_raw)
+    # Rend le titre lisible.
+
+    return artist, title
+    # Retourne un tuple (artiste, titre).
 
 
 # =============================================================================
 # CHARGEMENT DES DONNÉES LATENTES (UMAP + MÉTADONNÉES)
 # =============================================================================
+
 @st.cache_data
 def load_latent_and_meta():
     """
     Charge les données nécessaires à la visualisation UMAP interactive.
-
-    But
-    ---
-    Fournir à l'interface les données suivantes :
-    - coordonnées UMAP 2D de chaque image
-    - labels numériques
-    - noms de classes
-    - chemins des fichiers d'origine
-
-    Sources prises en charge
-    ------------------------
-    1. Bundle unique :
-       umap_bundle.npz
-
-       contenant :
-       - latent_2d
-       - labels
-       - classnames
-       - filenames
-
-    2. Fichiers séparés :
-       - latent_2d.npy
-       - labels.npy
-       - classnames.npy
-       - filenames.npy
-
-    Pourquoi @st.cache_data ?
-    -------------------------
-    Ces données sont lues depuis le disque et ne changent pas à chaque
-    interaction. Les mettre en cache :
-    - évite les relectures répétées,
-    - accélère le rendu,
-    - diminue la charge inutile.
-
-    Vérifications réalisées
-    -----------------------
-    - présence des clés nécessaires dans le bundle
-    - validité de la forme du tableau latent_2d
-    - cohérence du nombre de lignes entre :
-      embeddings / labels / filenames
-
-    Retour
-    ------
-    tuple | None
-        Retourne (latent_2d, labels, classnames, filenames)
-        ou None si les données UMAP ne sont pas disponibles.
-
-    Exceptions
-    ----------
-    Peut lever une ValueError si les données sont incomplètes ou incohérentes.
     """
     cfg = load_config()
+    # Charge la configuration du projet depuis une source interne.
+    # On suppose que cfg est un dictionnaire contenant notamment des chemins.
 
-    # On lit dans la configuration le dossier racine des embeddings.
     emb_root = Path(cfg["paths"]["embeddings_root"])
+    # Récupère le dossier racine où sont stockés les embeddings et métadonnées.
+    # On convertit ce chemin en Path pour manipulations propres ensuite.
 
-    # Chemin d'un bundle UMAP "tout-en-un", s'il existe.
     bundle_path = emb_root / "umap_bundle.npz"
+    # Construit le chemin vers un fichier compressé .npz contenant potentiellement
+    # toutes les données nécessaires à l'affichage UMAP dans un seul bundle.
 
-    # -------------------------------------------------------------------------
-    # CAS 1 - Chargement depuis un bundle unique
-    # -------------------------------------------------------------------------
     if bundle_path.exists():
         data = np.load(bundle_path, allow_pickle=True)
+        # Si le bundle existe, on le charge.
+        # np.load(..., allow_pickle=True) permet de lire des objets Python sérialisés,
+        # ce qui peut être nécessaire pour classnames ou filenames.
 
-        # Clés indispensables pour pouvoir construire l'UMAP.
         required_keys = {"latent_2d", "labels", "classnames", "filenames"}
+        # Ensemble des clés indispensables pour que l'UMAP fonctionne correctement.
 
-        # Recherche d'éventuelles clés manquantes.
         missing = required_keys.difference(set(data.files))
+        # data.files contient les clés présentes dans le fichier .npz.
+        # On calcule celles qui manquent.
 
         if missing:
             raise ValueError(
                 f"Le bundle UMAP est incomplet. Clés manquantes: {sorted(missing)}"
             )
+            # On arrête explicitement avec un message clair plutôt que de laisser
+            # l'application échouer plus loin de manière obscure.
 
-        # Chargement explicite des différentes composantes
         latent_2d = np.asarray(data["latent_2d"])
-        labels = np.asarray(data["labels"])
-        classnames = _coerce_object_array(data["classnames"])
-        filenames = _coerce_object_array(data["filenames"])
+        # Projection 2D des embeddings, typiquement shape (N, 2).
 
-    # -------------------------------------------------------------------------
-    # CAS 2 - Chargement depuis des fichiers séparés
-    # -------------------------------------------------------------------------
+        labels = np.asarray(data["labels"])
+        # Labels numériques associés à chaque point.
+
+        classnames = _coerce_object_array(data["classnames"])
+        # Noms des classes / styles, convertis proprement en array object.
+
+        filenames = _coerce_object_array(data["filenames"])
+        # Chemins ou noms des fichiers correspondant à chaque point projeté.
+
     else:
         latent_path = emb_root / "latent_2d.npy"
+        # Si le bundle complet n'existe pas, on tente un chargement à partir de fichiers séparés.
 
-        # Si la projection UMAP n'existe pas, on considère la visualisation
-        # comme indisponible, sans faire planter toute l'application.
         if not latent_path.exists():
             return None
+            # Si même la projection principale n'existe pas, on considère que l'UMAP
+            # n'est pas disponible et on renvoie None.
 
         latent_2d = np.load(latent_path)
-        labels = np.load(emb_root / "labels.npy")
-        classnames = np.load(emb_root / "classnames.npy", allow_pickle=True)
-        filenames = np.load(emb_root / "filenames.npy", allow_pickle=True)
+        # Charge la projection 2D.
 
-        # Normalisation des types chargés
+        labels = np.load(emb_root / "labels.npy")
+        # Charge les labels.
+
+        classnames = np.load(emb_root / "classnames.npy", allow_pickle=True)
+        # Charge les noms de classes.
+
+        filenames = np.load(emb_root / "filenames.npy", allow_pickle=True)
+        # Charge les chemins de fichiers.
+
         latent_2d = np.asarray(latent_2d)
         labels = np.asarray(labels)
         classnames = _coerce_object_array(classnames)
         filenames = _coerce_object_array(filenames)
+        # Uniformisation des types pour la suite du traitement.
 
-    # -------------------------------------------------------------------------
-    # VALIDATION DE LA STRUCTURE DE latent_2d
-    # -------------------------------------------------------------------------
-    # On attend ici une matrice de forme (N, 2) ou au moins (N, >=2),
-    # car seules les deux premières dimensions sont exploitées pour l'affichage.
     if latent_2d.ndim != 2 or latent_2d.shape[1] < 2:
         raise ValueError(
             f"Projection UMAP invalide: shape={latent_2d.shape}, attendu=(N, 2)"
         )
+        # Vérifie que la projection a bien 2 dimensions au sens matrice
+        # et au moins 2 colonnes.
+        # UMAP destiné à un scatter 2D doit fournir un tableau de forme (N, 2).
 
-    # -------------------------------------------------------------------------
-    # VALIDATION DE LA COHÉRENCE ENTRE LES TABLEAUX
-    # -------------------------------------------------------------------------
     n_latent = int(latent_2d.shape[0])
+    # Nombre de points dans la projection.
+
     n_labels = int(len(labels))
+    # Nombre de labels.
+
     n_filenames = int(len(filenames))
+    # Nombre de fichiers.
 
     if not (n_latent == n_labels == n_filenames):
         raise ValueError(
@@ -489,211 +350,256 @@ def load_latent_and_meta():
             f" - filenames : {n_filenames}\n"
             "Relance compute_embeddings.py puis visualization_umap.py."
         )
+        # Contrôle de cohérence fondamental : chaque point projeté doit correspondre
+        # à un label et à un fichier, ni plus ni moins.
+        # Le message d'erreur guide aussi vers les scripts à relancer.
 
     return latent_2d, labels, classnames, filenames
+    # Renvoie l'ensemble des données nécessaires à la visualisation interactive.
 
 
 # =============================================================================
 # INITIALISATION DES RESSOURCES
 # =============================================================================
-# Chargement du moteur principal de recherche.
+
 retriever = get_retriever()
+# Instancie (ou récupère depuis le cache) le moteur de recherche.
+# Cette ligne est exécutée lors du rendu du script Streamlit.
 
-# Variables de contrôle pour la partie UMAP.
-# - latent_bundle : contiendra les données si elles existent
-# - latent_error  : contiendra une éventuelle exception de chargement
 latent_bundle = None
-latent_error = None
+# Variable initialisée par défaut à None.
+# Elle contiendra plus tard soit les données UMAP, soit restera vide si indisponibles.
 
-# On essaie de charger les données UMAP dès l'initialisation.
-# Si cela échoue, on capture l'erreur pour l'afficher plus tard à l'utilisateur
-# sans interrompre le reste de l'application.
+latent_error = None
+# Variable destinée à stocker une éventuelle exception rencontrée
+# lors du chargement des données UMAP.
+
 try:
     latent_bundle = load_latent_and_meta()
+    # Tente de charger les données UMAP.
 except Exception as exc:
     latent_error = exc
+    # En cas d'erreur, on la stocke sans faire crasher l'application.
+    # Cela permet à l'interface principale de rester utilisable même si l'UMAP est cassé.
 
 
 # =============================================================================
 # INTERFACE UTILISATEUR - CONTRÔLES D'ENTRÉE
 # =============================================================================
-# Upload de l'image requête.
-#
-# type=[...]
-# ----------
-# Restreint les formats acceptés afin de :
-# - guider l'utilisateur,
-# - éviter certains cas non gérés,
-# - limiter les erreurs en amont.
+
 uploaded = st.file_uploader(
     "Upload une image (jpg/png/webp)",
     type=["jpg", "jpeg", "png", "webp"],
 )
+# Affiche un composant de téléchargement de fichier.
+# L'utilisateur peut envoyer une image dans l'un des formats autorisés.
+# La variable 'uploaded' contiendra soit None (si rien n'est chargé),
+# soit un objet UploadedFile fourni par Streamlit.
 
-# Nombre de voisins similaires à retourner.
-# Ici fixé à 4, conformément au besoin exprimé.
 k = 4
+# Nombre de résultats similaires à demander au moteur.
+# Ici, on fixe top-k à 4 de manière statique.
 
-# Activation ou non du calcul Grad-CAM.
-# Cette option est laissée à l'utilisateur car elle peut être plus coûteuse.
 show_gradcam = st.checkbox(
     "Afficher Grad-CAM (top-1)",
     value=False,
 )
+# Ajoute une case à cocher pour activer ou non la visualisation Grad-CAM.
+# value=False signifie qu'elle est décochée par défaut.
+# Cette option déclenche potentiellement un calcul coûteux, d'où son caractère optionnel.
 
 
 # =============================================================================
 # TRAITEMENT PRINCIPAL
 # =============================================================================
-# Le cœur du traitement ne s'exécute que si l'utilisateur a chargé un fichier.
+
 if uploaded is not None:
-    # -------------------------------------------------------------------------
-    # SAUVEGARDE TEMPORAIRE DE L'IMAGE UPLOADÉE
-    # -------------------------------------------------------------------------
-    # Pourquoi enregistrer un fichier temporaire ?
-    # --------------------------------------------
-    # Streamlit fournit un objet UploadedFile, qui est en mémoire.
-    # Or le retriever attend vraisemblablement un chemin de fichier sur disque.
-    #
-    # On convertit donc le fichier uploadé en un fichier temporaire local.
+    # Toute la logique principale de recherche est exécutée seulement
+    # si l'utilisateur a effectivement uploadé une image.
+
     suffix = Path(uploaded.name).suffix if uploaded.name else ".jpg"
+    # On récupère l'extension du fichier uploadé (.jpg, .png, etc.)
+    # pour la réutiliser dans le fichier temporaire.
+    # Si uploaded.name est absent, on prend .jpg par défaut.
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+        # Crée un fichier temporaire sur disque.
+        # delete=False signifie que le fichier ne sera pas supprimé automatiquement
+        # à la fermeture du contexte.
+        # C'est utile si le moteur de retrieval attend un chemin de fichier réel.
         f.write(uploaded.read())
-        query_path = f.name
+        # Lit le contenu binaire du fichier uploadé puis l'écrit dans le fichier temporaire.
 
-    # -------------------------------------------------------------------------
-    # RECHERCHE DES ŒUVRES LES PLUS SIMILAIRES
-    # -------------------------------------------------------------------------
-    # On encapsule l'appel dans un spinner pour indiquer à l'utilisateur
-    # qu'un traitement est en cours.
+        query_path = f.name
+        # Stocke le chemin du fichier temporaire.
+        # Ce chemin sera passé au moteur de recherche.
+
     with st.spinner("Recherche des œuvres similaires..."):
         results = retriever.top_k_similar(query_path, k=k)
+        # Affiche une animation d'attente pendant l'exécution de la recherche.
+        # top_k_similar est supposée renvoyer une liste de résultats,
+        # chaque résultat étant probablement un dictionnaire contenant au moins :
+        # - filepath
+        # - style
+        # - similarity
 
-    # Sécurité : si aucun résultat n'est retourné, on affiche une erreur
-    # claire et on stoppe l'exécution de ce rerun.
     if not results:
         st.error("Aucun résultat n'a été retourné par le moteur de recherche.")
-        st.stop()
+        # Affiche un message d'erreur utilisateur si la liste est vide.
 
-    # Le premier résultat est considéré comme le meilleur match.
+        st.stop()
+        # Arrête immédiatement l'exécution du script Streamlit pour cette interaction.
+        # Cela évite d'accéder à results[0] plus bas et donc de provoquer une erreur.
+
     best = results[0]
+    # Récupère le premier résultat, supposé être le plus pertinent.
+    # On l'utilise ensuite comme top-1 pour le style suggéré, Grad-CAM et le highlight UMAP.
 
     # -------------------------------------------------------------------------
-    # AFFICHAGE DE L'IMAGE REQUÊTE
+    # Affichage de l'image source
     # -------------------------------------------------------------------------
     st.subheader("Image source")
+    # Affiche un sous-titre pour introduire la section de l'image requête.
+
     st.image(
         query_path,
         caption="Image requête",
-        width="stretch",
+        # width="stretch",
+        width=600,
     )
+    # Affiche l'image uploadée par l'utilisateur.
+    # query_path est le chemin local temporaire de l'image.
+    # caption ajoute une légende sous l'image.
+    # width=600 fixe une largeur d'affichage en pixels.
+    # La ligne width="stretch" est commentée : elle aurait étiré l'image selon l'espace dispo.
+
+    st.markdown(f"**Style suggéré :** {best['style']}")
+    # Affiche le style du meilleur résultat en gras grâce au Markdown.
+    # best['style'] est supposé provenir du moteur de retrieval.
 
     # -------------------------------------------------------------------------
-    # AFFICHAGE DES MEILLEURES CORRESPONDANCES
+    # Affichage des résultats visuels
     # -------------------------------------------------------------------------
     st.subheader("Comparaison visuelle")
+    # Sous-titre de la section qui montre les œuvres similaires.
 
-    # On crée jusqu'à 4 colonnes, ou moins si moins de résultats sont présents.
     cols = st.columns(min(4, len(results)))
+    # Crée un ensemble de colonnes Streamlit pour afficher les résultats côte à côte.
+    # min(4, len(results)) permet de ne pas créer plus de colonnes qu'il n'y a de résultats,
+    # tout en limitant l'affichage à 4 colonnes maximum.
 
     for i, res in enumerate(results):
+        # Parcourt chaque résultat avec son indice i.
+
+        artist, title = _extract_artist_and_title(res["filepath"])
+        # Tente d'extraire artiste et titre depuis le nom de fichier du résultat.
+
         with cols[i % len(cols)]:
+            # Choisit la colonne dans laquelle afficher ce résultat.
+            # Le modulo permet de répartir les cartes dans les colonnes disponibles.
+            # Ici, comme le nombre de résultats est k=4, cela correspond souvent à une colonne par résultat.
+
             st.image(
                 res["filepath"],
                 caption=f"Top {i + 1} — {res['style']} ({res['similarity']:.3f})",
                 width="stretch",
             )
+            # Affiche l'image candidate.
+            # res["filepath"] est son chemin.
+            # La légende montre :
+            # - son rang (Top 1, Top 2, ...)
+            # - son style
+            # - son score de similarité formaté à 3 décimales.
+            # width="stretch" demande à Streamlit d'occuper la largeur du conteneur.
 
-    # Affichage textuel du style proposé à partir du meilleur match.
-    st.markdown(f"**Style suggéré :** {best['style']}")
-
-    # -------------------------------------------------------------------------
-    # VERSION ALTERNATIVE D'AFFICHAGE (CONSERVÉE EN COMMENTAIRE)
-    # -------------------------------------------------------------------------
-    # Cette section est volontairement laissée commentée.
-    # Elle constitue une variante d'affichage où l'image requête et les top-k
-    # résultats sont tous placés sur une seule ligne.
-    #
-    # Ce type de bloc commenté peut être utile :
-    # - pour expérimenter d'autres layouts,
-    # - pour revenir rapidement à un ancien affichage,
-    # - pour comparer deux stratégies UI.
-    #
-    # st.subheader("Comparaison visuelle")
-    #
-    # cols = st.columns(len(results) + 1)
-    #
-    # with cols[0]:
-    #     st.image(
-    #         query_path,
-    #         caption="Image requête",
-    #         width="stretch",
-    #     )
-    #
-    # for i, res in enumerate(results, start=1):
-    #     with cols[i]:
-    #         st.image(
-    #             res["filepath"],
-    #             caption=f"Top {i} — {res['style']} ({res['similarity']:.3f})",
-    #             width="stretch",
-    #         )
-    #
-    # st.markdown(f"**Style suggéré :** {best['style']}")
+            st.markdown(
+                f"""
+                <p style="line-height:1.1; margin:0;">
+                    <strong>{artist}</strong> <br>
+                    <em>{title}</em>
+                </p>
+                """,
+                unsafe_allow_html=True
+            )
+            # Affiche en HTML l'artiste et le titre juste sous l'image.
+            # <strong> met le nom de l'artiste en gras.
+            # <em> met le titre en italique.
+            # line-height réduit l'espacement vertical.
+            # margin:0 évite des marges inutiles.
+            # unsafe_allow_html=True autorise l'interprétation HTML par Streamlit.
+            # Il faut l'utiliser avec prudence, mais ici le contenu est simple et maîtrisé.
 
     # -------------------------------------------------------------------------
-    # TABLEAU RÉCAPITULATIF
+    # Tableau récapitulatif
     # -------------------------------------------------------------------------
     st.subheader("Résumé des résultats")
+    # Introduit la section tabulaire.
 
-    # Construction d'un DataFrame de synthèse.
-    #
-    # Colonnes :
-    # - rang        : position dans le classement
-    # - style       : style associé au résultat
-    # - similarité  : score numérique
-    # - fichier     : nom de fichier court
-    # - chemin      : chemin complet
-    #
-    # Pourquoi conserver aussi le chemin complet ?
-    # --------------------------------------------
-    # Cela peut être utile pour :
-    # - le débogage,
-    # - la traçabilité,
-    # - vérifier l'origine exacte d'un résultat.
-    df_results = pd.DataFrame(
-        [
+    rows = []
+    # Cette liste va contenir un dictionnaire par résultat.
+    # Elle sera ensuite convertie en DataFrame Pandas.
+
+    for i, res in enumerate(results):
+        artist, title = _extract_artist_and_title(res["filepath"])
+        # Réutilise l'extraction artiste/titre pour enrichir le tableau.
+
+        rows.append(
             {
                 "rang": i + 1,
+                # Position du résultat dans le classement.
+
+                "artiste": artist,
+                # Nom de l'artiste extrait du nom de fichier.
+
+                "tableau": title,
+                # Titre de l'œuvre extrait du nom de fichier.
+
                 "style": res["style"],
+                # Style associé au résultat.
+
                 "similarité": round(float(res["similarity"]), 4),
+                # Score de similarité converti explicitement en float puis arrondi à 4 décimales.
+                # Le float(...) garantit un type affichable même si similarity est un scalaire NumPy.
+
                 "fichier": Path(str(res["filepath"])).name,
+                # Ne garde que le nom du fichier (sans le dossier).
+
                 "chemin": str(res["filepath"]),
+                # Garde aussi le chemin complet, utile pour debug ou inspection.
             }
-            for i, res in enumerate(results)
-        ]
-    )
+        )
+
+    df_results = pd.DataFrame(rows)
+    # Transforme la liste de dictionnaires en tableau structuré Pandas.
 
     st.dataframe(df_results, width="stretch", hide_index=True)
+    # Affiche le DataFrame dans Streamlit.
+    # width="stretch" utilise toute la largeur disponible.
+    # hide_index=True masque l'index par défaut de Pandas, peu utile ici.
 
     # -------------------------------------------------------------------------
-    # EXPLICATION VISUELLE AVEC GRAD-CAM
+    # Explication visuelle avec Grad-CAM
     # -------------------------------------------------------------------------
     if show_gradcam:
+        # Ce bloc n'est exécuté que si l'utilisateur a coché la case correspondante.
+
         st.subheader("Explication visuelle (Grad-CAM similarity)")
+        # Titre de la section d'explicabilité.
 
         try:
-            # L'explication porte ici sur la relation entre :
-            # - l'image requête
-            # - le meilleur résultat (top-1)
             with st.spinner("Calcul des cartes Grad-CAM..."):
                 explanation = retriever.explain_similarity(
                     query_path,
                     best["filepath"],
                 )
+                # Demande au moteur de calculer une explication visuelle entre :
+                # - l'image requête
+                # - l'image du meilleur résultat
+                # On suppose que la méthode renvoie un dictionnaire contenant
+                # au moins les overlays et des métadonnées comme la couche cible.
 
-            # Deux colonnes pour comparer visuellement les deux overlays.
             c1, c2 = st.columns(2)
+            # Crée deux colonnes pour afficher côte à côte les deux cartes Grad-CAM.
 
             with c1:
                 st.image(
@@ -701,6 +607,8 @@ if uploaded is not None:
                     caption=f"Requête (couche: {explanation['target_layer']})",
                     width="stretch",
                 )
+                # Affiche l'overlay Grad-CAM de l'image requête.
+                # Le caption précise la couche réseau utilisée pour l'explication.
 
             with c2:
                 st.image(
@@ -708,108 +616,164 @@ if uploaded is not None:
                     caption=f"Top-1 match ({best['style']})",
                     width="stretch",
                 )
+                # Affiche l'overlay Grad-CAM de l'image candidate top-1.
 
-            # Rappel du score de similarité numérique.
+            best_artist, best_title = _extract_artist_and_title(best["filepath"])
+            # Extrait l'artiste et le titre du meilleur résultat pour les afficher textuellement.
+
+            st.markdown(
+                f"""
+                **Top-1 sélectionné :**
+                **Artiste :** {best_artist}
+                **Tableau :** {best_title}
+                """
+            )
+            # Affiche des informations textuelles sur le top-1.
+            # À noter : en Markdown classique, des sauts de ligne plus explicites
+            # ou des puces pourraient encore améliorer le rendu.
+
             st.caption(f"Similarité (cosine): {explanation['similarity']:.3f}")
+            # Petite légende discrète indiquant le score de similarité,
+            # formaté avec 3 décimales.
 
         except Exception as exc:
-            # L'application reste robuste si l'explication échoue.
-            # On préfère avertir plutôt que faire planter toute l'interface.
             st.warning(f"Grad-CAM indisponible : {exc}")
+            # Si le calcul Grad-CAM échoue, on n'interrompt pas toute l'application.
+            # On affiche simplement un avertissement explicatif.
 
     else:
-        # Message d'accompagnement lorsque l'option n'est pas active.
         st.info(
             "Active l'option Grad-CAM pour visualiser les zones qui "
             "contribuent à la similarité du top-1."
         )
+        # Si l'option n'est pas activée, on affiche un message informatif pour guider l'utilisateur.
 
     # -------------------------------------------------------------------------
-    # VISUALISATION DE L'ESPACE LATENT AVEC UMAP
+    # Visualisation UMAP
     # -------------------------------------------------------------------------
-    # Cas 1 : une erreur a été rencontrée lors du chargement des données UMAP
     if latent_error is not None:
         st.warning(f"Visualisation UMAP indisponible : {latent_error}")
+        # Si le chargement UMAP a échoué plus tôt, on affiche l'erreur ici.
 
-    # Cas 2 : les données UMAP sont bien disponibles
     elif latent_bundle is not None:
         st.subheader("Espace latent (UMAP interactif)")
+        # Si les données sont disponibles, on affiche la section UMAP.
 
         latent_2d, labels, classnames, filenames = latent_bundle
+        # Décompacte les 4 éléments retournés par load_latent_and_meta().
 
-        # Construction des noms de styles lisibles.
         style_names = _build_style_names(labels, classnames)
+        # Convertit les labels numériques en noms de styles lisibles.
 
-        # Extraction du nom court des fichiers pour affichage plus propre.
         short_filenames = [Path(str(fp)).name for fp in filenames]
+        # Crée une version courte des noms de fichiers, sans les chemins,
+        # pour un affichage plus propre dans les tooltips.
 
-        # DataFrame principal utilisé par Plotly.
+        artists = []
+        titles = []
+        # Prépare deux listes qui contiendront artiste et titre pour chaque point UMAP.
+
+        for fp in filenames:
+            artist, title = _extract_artist_and_title(str(fp))
+            # Extrait artiste et titre depuis chaque nom de fichier.
+
+            artists.append(artist)
+            titles.append(title)
+            # Remplit les listes pour les injecter ensuite dans le DataFrame.
+
         df_umap = pd.DataFrame(
             {
                 "x": latent_2d[:, 0],
+                # Première coordonnée UMAP de chaque point.
+
                 "y": latent_2d[:, 1],
-                "label": labels,
-                "style": style_names,
-                "filename": short_filenames,
+                # Deuxième coordonnée UMAP de chaque point.
+
+                "Label": labels,
+                # Label brut de classe.
+
+                "Style": style_names,
+                # Nom lisible du style.
+
+                "Artiste": artists,
+                # Artiste extrait du nom de fichier.
+
+                "Tableau": titles,
+                # Titre de l'œuvre.
+
+                "Fichier": short_filenames,
+                # Nom de fichier court.
+
                 "filepath": [str(fp) for fp in filenames],
+                # Chemin complet, potentiellement utile pour retrouver un point précis.
             }
         )
 
-        # Liste triée des styles disponibles dans les données.
-        styles_disponibles = sorted(df_umap["style"].astype(str).unique().tolist())
+        styles_disponibles = sorted(df_umap["Style"].astype(str).unique().tolist())
+        # Récupère la liste unique des styles présents dans le DataFrame,
+        # convertie en chaînes, puis triée alphabétiquement.
+        # Cela sert de base aux filtres interactifs.
 
-        # Multisélection permettant à l'utilisateur de filtrer les classes visibles.
         styles_selectionnes = st.multiselect(
             "Filtrer les styles affichés dans l'UMAP",
             options=styles_disponibles,
             default=styles_disponibles,
         )
+        # Affiche une sélection multiple permettant à l'utilisateur de choisir
+        # quels styles afficher.
+        # Par défaut, tous les styles sont sélectionnés.
 
-        # On applique le filtre choisi par l'utilisateur.
-        df_umap_filtered = df_umap[df_umap["style"].isin(styles_selectionnes)].copy()
+        df_umap_filtered = df_umap[df_umap["Style"].isin(styles_selectionnes)].copy()
+        # Filtre les points UMAP selon les styles choisis.
+        # .copy() évite certains avertissements Pandas liés aux vues/slices.
 
         if df_umap_filtered.empty:
             st.warning("Aucun point à afficher : aucun style sélectionné.")
+            # Si l'utilisateur désélectionne tout, on l'indique explicitement.
         else:
-            # Création du scatter plot interactif.
             fig = px.scatter(
                 df_umap_filtered,
                 x="x",
                 y="y",
-                color="style",
+                color="Style",
                 hover_data={
-                    # On n'affiche pas x/y dans le tooltip pour éviter le bruit,
-                    # sauf si cela devient utile plus tard pour du debug.
                     "x": False,
                     "y": False,
-                    "label": True,
-                    "style": True,
-                    "filename": True,
+                    "Label": False,
+                    "Style": True,
+                    "Artiste": True,
+                    "Tableau": True,
+                    "Fichier": False,
                     "filepath": False,
                 },
                 opacity=0.45,
                 title="Projection UMAP des embeddings",
             )
+            # Crée un nuage de points interactif Plotly.
+            # color="Style" colore les points par style.
+            # hover_data permet de choisir précisément quelles colonnes apparaissent au survol.
+            # x, y, Label, filepath, etc. peuvent être masqués pour garder un tooltip lisible.
+            # opacity=0.45 rend les points semi-transparents, utile quand ils se chevauchent.
 
-            # Uniformisation de la taille des points standards.
             fig.update_traces(marker=dict(size=7))
+            # Réduit / fixe la taille des marqueurs pour améliorer la lisibilité du nuage.
 
-            # -----------------------------------------------------------------
-            # SURBRILLANCE DU TOP-1 DANS L'ESPACE LATENT
-            # -----------------------------------------------------------------
             idx_best = _find_best_index(filenames, str(best["filepath"]))
+            # Tente de retrouver le point UMAP correspondant au meilleur résultat top-1.
 
             if idx_best is not None:
                 x_best = latent_2d[idx_best, 0]
-                y_best = latent_2d[idx_best, 1]
-                best_filename = Path(str(best["filepath"])).name
+                # Coordonnée x du meilleur point.
 
-                # Ajout d'une trace dédiée au meilleur résultat.
-                # On le rend visuellement plus saillant :
-                # - taille plus grande
-                # - cercle ouvert
-                # - contour noir
-                # - texte au-dessus
+                y_best = latent_2d[idx_best, 1]
+                # Coordonnée y du meilleur point.
+
+                best_filename = Path(str(best["filepath"])).name
+                # Nom de fichier du meilleur résultat, sans son chemin.
+
+                best_artist, best_title = _extract_artist_and_title(best["filepath"])
+                # Extrait artiste et titre pour enrichir le tooltip du point mis en évidence.
+
                 fig.add_trace(
                     go.Scatter(
                         x=[x_best],
@@ -826,6 +790,8 @@ if uploaded is not None:
                         hovertemplate=(
                             "<b>Top-1 sélectionné</b><br>"
                             f"Style: {best['style']}<br>"
+                            f"Artiste: {best_artist}<br>"
+                            f"Tableau: {best_title}<br>"
                             f"Fichier: {best_filename}<br>"
                             f"Similarité: {best['similarity']:.3f}"
                             "<extra></extra>"
@@ -833,8 +799,13 @@ if uploaded is not None:
                         showlegend=True,
                     )
                 )
+                # Ajoute une nouvelle trace Plotly pour surligner visuellement le top-1.
+                # mode="markers+text" affiche à la fois un point et un texte.
+                # symbol="circle-open" dessine un cercle vide autour du point.
+                # line=dict(...) définit le contour noir épais.
+                # hovertemplate personnalise complètement le contenu du tooltip.
+                # <extra></extra> supprime le petit encart supplémentaire Plotly souvent peu utile.
 
-                # Ajout d'une annotation visible directement sur la figure.
                 fig.add_annotation(
                     x=x_best,
                     y=y_best,
@@ -847,27 +818,32 @@ if uploaded is not None:
                     bordercolor="black",
                     borderwidth=1,
                 )
+                # Ajoute une annotation textuelle avec flèche pointant vers le meilleur résultat.
+                # ax et ay contrôlent le décalage de l'étiquette par rapport au point.
+                # bgcolor, bordercolor et borderwidth améliorent la lisibilité de l'annotation.
 
-            # Réglages finaux de mise en page.
             fig.update_layout(
                 xaxis_title="Dimension UMAP 1",
                 yaxis_title="Dimension UMAP 2",
                 legend_title="Styles",
                 height=700,
             )
+            # Personnalise la mise en page du graphique :
+            # titres d'axes, titre de légende et hauteur globale du composant.
 
             st.plotly_chart(fig, width="stretch")
+            # Affiche le graphique interactif dans Streamlit.
+            # width="stretch" permet au graphique d'occuper toute la largeur disponible.
 
-            # Texte d'aide sous la figure.
             st.caption(
                 "Chaque point représente une œuvre projetée dans un espace latent 2D. "
                 "Les couleurs correspondent aux styles artistiques. "
                 "Le point entouré correspond au meilleur résultat (top-1)."
             )
+            # Ajoute une légende explicative sous le graphique pour aider l'utilisateur
+            # à interpréter la visualisation.
 
-# =============================================================================
-# CAS PAR DÉFAUT : AUCUNE IMAGE ENTRÉE
-# =============================================================================
 else:
-    # Message d'accueil / guidance tant qu'aucune image n'a été chargée.
     st.info("Charge une image pour lancer la recherche.")
+    # Cas initial : aucun fichier n'a encore été uploadé.
+    # On affiche simplement une consigne à l'utilisateur.
