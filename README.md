@@ -3,6 +3,7 @@
 
 
 ---
+_v 0.03.20.1214_
 - **Emmanuelle** - _manievfoulards@gmail.com_
 - **Lucile** - _lucilejosse.mail@gmail.com_
 - **Lionel** - _lion94.home@gmail.com_
@@ -80,7 +81,7 @@ python -m src.build_dataset_from_csv --clean-only
 
 ```bash
 # Open this notebook:
-art-xplain/art-xplain/notebooks/LN_step_2_train_encoder_step_by_step.ipynb
+art-xplain/art-xplain/notebooks/step_2_train_encoder_step_by_step.ipynb
 ```
 
   - #### Option python:
@@ -95,7 +96,7 @@ python -m src.train_encoder_model
 
 ```bash
 # Open this notebook:
-art-xplain/art-xplain/notebooks/LN_step_3_compute_embeddings_step_by_step.ipynb
+art-xplain/art-xplain/notebooks/step_3_compute_embeddings_step_by_step.ipynb
 ```
 
  - #### Option python:
@@ -113,7 +114,7 @@ Fichiers générés dans `embeddings/`:
 ### Étape 4 — Projeter en 2D (UMAP)
 
 ```bash
-cd art-xplain/artxplain
+cd art-xplain/art_xplain
 python -m src.visualization_umap
 ```
 
@@ -123,7 +124,7 @@ Fichier généré:
 ### Étape 5 — Lancer l'application Streamlit
 
 ```bash
-cd art-xplain/artxplain
+cd art-xplain/art_xplain
 streamlit run src/app_streamlit.py
 ```
 
