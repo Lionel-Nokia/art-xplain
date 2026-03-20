@@ -39,24 +39,27 @@ Ces chemins sont configurés dans `config.yaml` via:
 ## 2) Installation
 
 ```bash
-pyenv virtualenv art-xplain
-cd art-xplain
-pyenv local art-xplain
-pip install -r requirements.txt
+make install
 ```
 
 ## 3) Pipeline complet
 
 ### Étape 1 — Construire les splits train/val/test
 
-  - #### Option notebook:
+- #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/step_1_build_dataset_step_by_step.ipynb
 ```
 
-  - #### Option python:
+- #### Option make:
+
+```bash
+make dataset
+```
+
+- #### Option python:
 
 ```bash
 python -m src.build_dataset_from_csv
@@ -77,29 +80,41 @@ python -m src.build_dataset_from_csv --clean-only
 
 ### Étape 2 — Entraîner l'encodeur
 
-  - #### Option notebook:
+- #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/step_2_train_encoder_step_by_step.ipynb
 ```
 
-  - #### Option python:
+- #### Option make:
 
 ```bash
-python -m src.train_encoder_model
+make train
+```
+
+- #### Option python:
+
+```bash
+python -m src.build_encoder_model
 ```
 
 ### Étape 3 — Calculer les embeddings
 
-  - #### Option notebook:
+- #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/step_3_compute_embeddings_step_by_step.ipynb
 ```
 
- - #### Option python:
+- #### Option make:
+
+```bash
+make embeddings
+```
+
+- #### Option python:
 
 ```bash
 python -m src.compute_embeddings
@@ -113,8 +128,15 @@ Fichiers générés dans `embeddings/`:
 
 ### Étape 4 — Projeter en 2D (UMAP)
 
+- #### Option make:
+
 ```bash
-cd art-xplain/art_xplain
+make umap
+```
+
+- #### Option python:
+
+```bash
 python -m src.visualization_umap
 ```
 
@@ -123,9 +145,23 @@ Fichier généré:
 
 ### Étape 5 — Lancer l'application Streamlit
 
+- #### Option make:
+
 ```bash
-cd art-xplain/art_xplain
+make run
+```
+
+- #### Option manuelle:
+
+```bash
+cd art-xplain
 streamlit run src/app_streamlit.py
+```
+
+### Pipeline complet en une commande
+
+```bash
+make all
 ```
 
 ## 5) Notebook de préparation
