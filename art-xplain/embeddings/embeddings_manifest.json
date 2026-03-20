@@ -1,18 +1,18 @@
 {
-  "num_samples": 28709,
+  "num_samples": 28691,
   "embedding_dim": 256,
   "num_classes": 5,
   "img_size": 224,
   "dataset_roots": [
-    "/Users/lewagon/code/Lionel-Nokia/lab/art-xplain/art-xplain/data/out/train",
-    "/Users/lewagon/code/Lionel-Nokia/lab/art-xplain/art-xplain/data/out/val"
+    "/Users/lewagon/code/Lionel-Nokia/art-xplain/art-xplain/data/out/train",
+    "/Users/lewagon/code/Lionel-Nokia/art-xplain/art-xplain/data/out/val"
   ],
   "dataset_source": "keras_root/train + keras_root/val",
-  "embeddings_root": "/Users/lewagon/code/Lionel-Nokia/lab/art-xplain/art-xplain/embeddings",
-  "encoder_path": "/Users/lewagon/code/Lionel-Nokia/lab/art-xplain/art-xplain/models/encoder.keras",
-  "vectors_sha1": "d9a4b8e75cb330ab35356579cded0ef5f1024b34",
-  "labels_sha1": "58b8625039379b1a8e31bdbacd92b08b3634146e",
-  "filenames_sha1": "6359babb2e1cfd5d4a16aebee04ac7f7cd7021a3",
+  "embeddings_root": "/Users/lewagon/code/Lionel-Nokia/art-xplain/art-xplain/embeddings",
+  "encoder_path": "/Users/lewagon/code/Lionel-Nokia/art-xplain/art-xplain/models/encoder.keras",
+  "vectors_sha1": "f1935bbf0a9930872afdc85db67384b0305112b5",
+  "labels_sha1": "6419060d3cdedadd5b42923235a20e738247cd3b",
+  "filenames_sha1": "1fb512a038bbe25b9bf7c2e86ae01562fd85fc24",
   "classnames_sha1": "86e36cd382f009fc422795d658b667eb34057735",
   "skipped_count": 0,
   "skipped_files": []

@@ -227,22 +227,25 @@ def _extract_artist_and_title(filepath: str) -> tuple[str, str]:
     # Exemple : "/data/img/van-gogh_starry-night.jpg" -> "van-gogh_starry-night"
 
     if "_" not in filename:
-        return "Inconnu", _prettify_token(filename)
+        return "Inconnu", "Inconnu"
         # Si le séparateur '_' n'est pas présent, on ne peut pas distinguer artiste et tableau.
         # On adopte donc une stratégie de repli :
         # - artiste = "Inconnu"
-        # - titre = nom du fichier rendu plus lisible
+        # - titre = "Inconnu"
 
     artist_raw, title_raw = filename.split("_", 1)
     # On découpe au premier underscore uniquement.
     # Le paramètre 1 est important : s'il y a d'autres underscores dans le titre,
     # ils restent dans la seconde partie au lieu de provoquer trop de segments.
 
-    artist = _prettify_token(artist_raw)
+    artist = _prettify_token(artist_raw) if artist_raw.strip() else "Inconnu"
     # Rend le nom d'artiste lisible.
 
-    title = _prettify_token(title_raw)
+    title = _prettify_token(title_raw) if title_raw.strip() else "Inconnu"
     # Rend le titre lisible.
+
+    if artist == "Inconnu" or title == "Inconnu":
+        return "Inconnu", "Inconnu"
 
     return artist, title
     # Retourne un tuple (artiste, titre).
@@ -503,6 +506,14 @@ if uploaded is not None:
     # caption ajoute une légende sous l'image.
     # width=600 fixe une largeur d'affichage en pixels.
     # La ligne width="stretch" est commentée : elle aurait étiré l'image selon l'espace dispo.
+
+    source_artist, source_title = _extract_artist_and_title(uploaded.name or query_path)
+    st.markdown(
+        f"""
+        **Artiste :** {source_artist}  
+        **Tableau :** {source_title}
+        """
+    )
 
     st.markdown(f"**Style suggéré :** {best['style']}")
     # Affiche le style du meilleur résultat en gras grâce au Markdown.

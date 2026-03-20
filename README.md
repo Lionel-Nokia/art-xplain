@@ -3,7 +3,7 @@
 
 
 ---
-_v 0.03.20.1214_
+_v 0.03.20.2315_
 - **Emmanuelle** - _manievfoulards@gmail.com_
 - **Lucile** - _lucilejosse.mail@gmail.com_
 - **Lionel** - _lion94.home@gmail.com_
@@ -39,70 +39,54 @@ Ces chemins sont configurés dans `config.yaml` via:
 ## 2) Installation
 
 ```bash
-pyenv virtualenv art-xplain
-cd art-xplain
-pyenv local art-xplain
-pip install -r requirements.txt
+make install
 ```
 
 ## 3) Pipeline complet
 
 ### Étape 1 — Construire les splits train/val/test
 
-  - #### Option notebook:
+- #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/step_1_build_dataset_step_by_step.ipynb
 ```
 
-  - #### Option python:
+- #### Option make:
 
 ```bash
-python -m src.build_dataset_from_csv
-```
-
-Options utiles:
-- Nettoyer `data/out` puis régénérer:
-
-```bash
-python -m src.build_dataset_from_csv --clean-out
-```
-
-- Nettoyer uniquement `data/out`:
-
-```bash
-python -m src.build_dataset_from_csv --clean-only
+make dataset
 ```
 
 ### Étape 2 — Entraîner l'encodeur
 
-  - #### Option notebook:
+- #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/step_2_train_encoder_step_by_step.ipynb
 ```
 
-  - #### Option python:
+- #### Option make:
 
 ```bash
-python -m src.train_encoder_model
+make train
 ```
 
 ### Étape 3 — Calculer les embeddings
 
-  - #### Option notebook:
+- #### Option notebook:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/step_3_compute_embeddings_step_by_step.ipynb
 ```
 
- - #### Option python:
+- #### Option make:
 
 ```bash
-python -m src.compute_embeddings
+make embeddings
 ```
 
 Fichiers générés dans `embeddings/`:
@@ -113,9 +97,10 @@ Fichiers générés dans `embeddings/`:
 
 ### Étape 4 — Projeter en 2D (UMAP)
 
+- #### Option make:
+
 ```bash
-cd art-xplain/art_xplain
-python -m src.visualization_umap
+make umap
 ```
 
 Fichier généré:
@@ -124,8 +109,15 @@ Fichier généré:
 ### Étape 5 — Lancer l'application Streamlit
 
 ```bash
-cd art-xplain/art_xplain
-streamlit run src/app_streamlit.py
+make run
+```
+
+### Pipeline complet en une commande
+
+```bash
+# dataset train embeddings umap
+
+make all
 ```
 
 ## 5) Notebook de préparation
