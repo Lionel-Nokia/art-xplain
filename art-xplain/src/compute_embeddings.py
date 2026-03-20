@@ -65,6 +65,13 @@ IMG_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 # Le choix d'un `set` est pratique pour des tests d'appartenance rapides et lisibles.
 
 
+def print_step(step_number: int, title: str) -> None:
+    separator = "=" * 72
+    print(f"\n{separator}")
+    print(f"compute_embeddings: {step_number} - {title}")
+    print(separator)
+
+
 def _sha1_of_array(arr: np.ndarray) -> str:
     """
     Calcule une empreinte SHA1 déterministe à partir d'un tableau NumPy.
@@ -284,6 +291,7 @@ def main():
     5. calculer un embedding par image,
     6. sauvegarder tableaux + bundle + manifeste.
     """
+    print_step(1, "Chargement de la configuration")
     cfg = load_config()
     # Charge la configuration du projet depuis le fichier prévu par l'application.
 
@@ -311,6 +319,7 @@ def main():
         raise FileNotFoundError(f"encoder.keras introuvable: {encoder_path}")
         # Erreur explicite si le modèle attendu n'est pas disponible.
 
+    print_step(2, "Resolution des chemins")
     print("Sources images  :")
     for dataset_root in dataset_roots:
         print(f" - {dataset_root.resolve()}")
@@ -319,6 +328,7 @@ def main():
     print(f"Encoder path    : {encoder_path.resolve()}")
     print(f"Image size      : {img_size}")
 
+    print_step(3, "Chargement du modele encodeur")
     encoder = tf.keras.models.load_model(
         encoder_path,
         compile=False,
@@ -328,6 +338,7 @@ def main():
     # `compile=False` est suffisant ici car on ne réentraîne pas le modèle.
     # On veut seulement l'utiliser en inférence.
 
+    print_step(4, "Collecte des images par classe")
     images_by_class = _collect_images_by_class(dataset_roots)
     if not images_by_class:
         roots_str = ", ".join(str(p) for p in dataset_roots)
@@ -346,6 +357,7 @@ def main():
 
     print(f"Nombre de styles détectés : {len(images_by_class)}")
 
+    print_step(5, "Calcul des embeddings")
     for class_name, image_files in images_by_class.items():
         if not image_files:
             print(f"[WARN] Aucun fichier image pour la classe {class_name}")
@@ -426,6 +438,7 @@ def main():
             # On vérifie que tous les labels pointent bien vers une classe existante.
             # Cela évite des erreurs plus tard dans les scripts de retrieval ou de visualisation.
 
+    print_step(6, "Sauvegarde des artefacts")
     bundle_path = embeddings_root / "embeddings_bundle.npz"
     np.savez_compressed(
         bundle_path,
@@ -479,7 +492,8 @@ def main():
     # On écrit le manifeste en JSON lisible (`indent=2`).
     # `ensure_ascii=False` conserve correctement les accents si besoin.
 
-    print("\nEmbeddings export terminé")
+    print_step(7, "Resume final")
+    print("Embeddings export terminé")
     print(f" - samples        : {n_samples}")
     print(f" - dim            : {vectors.shape[1]}")
     print(f" - classes        : {len(classnames)}")

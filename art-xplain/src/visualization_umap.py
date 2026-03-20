@@ -10,10 +10,22 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import hashlib
+import os
+import warnings
 import numpy as np
+
+os.environ.setdefault("KMP_WARNINGS", "0")
+
 import umap
 
 from .utils import ensure_dir, load_config, relativize_project_path, resolve_project_path, resolve_stored_path
+
+
+def print_step(step_number: int, title: str) -> None:
+    separator = "=" * 72
+    print(f"\n{separator}")
+    print(f"visualization_umap: {step_number} - {title}")
+    print(separator)
 
 
 def _sha1_of_array(arr: np.ndarray) -> str:
@@ -48,10 +60,13 @@ def main():
     - classnames.npy      (rewritten for coherence)
     - umap_manifest.json
     """
+    print_step(1, "Chargement de la configuration")
     cfg = load_config()
     emb_root = resolve_project_path(cfg["paths"]["embeddings_root"])
     ensure_dir(emb_root)
+    print(f"Embeddings root : {emb_root.resolve()}")
 
+    print_step(2, "Chargement des artefacts d'entree")
     vectors_path = emb_root / "vectors.npy"
     labels_path = emb_root / "labels.npy"
     filenames_path = emb_root / "filenames.npy"
@@ -70,6 +85,12 @@ def main():
     )
     classnames = np.asarray(classnames, dtype=object)
 
+    print(f"vectors.npy    : {vectors_path.resolve()}")
+    print(f"labels.npy     : {labels_path.resolve()}")
+    print(f"filenames.npy  : {filenames_path.resolve()}")
+    print(f"classnames.npy : {classnames_path.resolve()}")
+
+    print_step(3, "Validation des donnees")
     if vectors.ndim != 2:
         raise ValueError(
             f"`vectors.npy` doit être de forme (N, D), reçu: {vectors.shape}"
@@ -101,11 +122,23 @@ def main():
                     f" - classnames : {len(classnames)} classes"
                 )
 
+    print(f"Nombre d'echantillons : {n_vectors}")
+    print(f"Dimension des vecteurs: {vectors.shape[1]}")
+    print(f"Nombre de classes     : {len(classnames)}")
+
+    print_step(4, "Calcul de la projection UMAP")
+    warnings.filterwarnings(
+        "ignore",
+        message=r"n_jobs value 1 overridden to 1 by setting random_state\. Use no seed for parallelism\.",
+        category=UserWarning,
+        module="umap.umap_",
+    )
     reducer = umap.UMAP(
         n_neighbors=int(cfg["umap"]["n_neighbors"]),
         min_dist=float(cfg["umap"]["min_dist"]),
         metric="cosine",
         random_state=42,
+        n_jobs=1,
     )
 
     latent_2d = reducer.fit_transform(vectors)
@@ -115,6 +148,9 @@ def main():
             f"Sortie UMAP inattendue: {latent_2d.shape}, attendu: ({n_vectors}, 2)"
         )
 
+    print(f"Projection calculee : {latent_2d.shape}")
+
+    print_step(5, "Sauvegarde des artefacts")
     # 1) Bundle unique recommandé
     bundle_path = emb_root / "umap_bundle.npz"
     np.savez_compressed(
@@ -153,6 +189,7 @@ def main():
         encoding="utf-8",
     )
 
+    print_step(6, "Resume final")
     print("UMAP bundle saved successfully")
     print(f" - bundle    : {bundle_path.resolve()}")
     print(f" - latent_2d : {(emb_root / 'latent_2d.npy').resolve()} {latent_2d.shape}")
