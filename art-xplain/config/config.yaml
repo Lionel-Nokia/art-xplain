@@ -17,6 +17,10 @@ dataset:
   keep_top_styles: 5
   # Minimum images required to keep a style
   min_images_per_style: 300
+  # Splits utilisés pour construire la galerie d'embeddings.
+  # Recommandé pour l'app de retrieval : ["train", "val"]
+  # Alternative possible : ["train", "val", "test"]
+  embedding_splits: ["train", "val"]
   # Split ratios
   test_size: 0.1
   val_size: 0.1

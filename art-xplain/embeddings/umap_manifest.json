@@ -1,13 +1,13 @@
 {
-  "num_samples": 3189,
+  "num_samples": 28709,
   "vector_dim": 256,
   "num_classes": 5,
   "umap_shape": [
-    3189,
+    28709,
     2
   ],
-  "vectors_sha1": "27f65532b9a59b71e6b78b2e00cfe98092aa3893",
-  "labels_sha1": "4f63aaa877569168666e9613447c8fdb52588c04",
-  "filenames_sha1": "df09483ee771824ae8660ce76a9338f654f66cfb",
+  "vectors_sha1": "d9a4b8e75cb330ab35356579cded0ef5f1024b34",
+  "labels_sha1": "58b8625039379b1a8e31bdbacd92b08b3634146e",
+  "filenames_sha1": "17e46f6b672142fb65b56d8d316677d902bfc4f1",
   "classnames_sha1": "578761a2eac30438968d82931ccd5a77d41e186c"
 }
