@@ -510,9 +510,12 @@ if uploaded is not None:
     source_artist, source_title = _extract_artist_and_title(uploaded.name or query_path)
     st.markdown(
         f"""
-        **Artiste :** {source_artist}  
-        **Tableau :** {source_title}
-        """
+        <p style="line-height:1.1; margin:0;">
+            <strong>{source_artist}</strong> <br>
+            <em>{source_title}</em>
+        </p>
+        """,
+        unsafe_allow_html=True
     )
 
     st.markdown(f"**Style suggéré :** {best['style']}")
