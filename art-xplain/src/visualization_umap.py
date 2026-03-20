@@ -13,7 +13,7 @@ import hashlib
 import numpy as np
 import umap
 
-from .utils import load_config, ensure_dir
+from .utils import ensure_dir, load_config, relativize_project_path, resolve_project_path, resolve_stored_path
 
 
 def _sha1_of_array(arr: np.ndarray) -> str:
@@ -49,7 +49,7 @@ def main():
     - umap_manifest.json
     """
     cfg = load_config()
-    emb_root = Path(cfg["paths"]["embeddings_root"])
+    emb_root = resolve_project_path(cfg["paths"]["embeddings_root"])
     ensure_dir(emb_root)
 
     vectors_path = emb_root / "vectors.npy"
@@ -64,7 +64,10 @@ def main():
 
     vectors = np.asarray(vectors)
     labels = np.asarray(labels)
-    filenames = np.asarray(filenames, dtype=object)
+    filenames = np.asarray(
+        [relativize_project_path(resolve_stored_path(fp)) for fp in filenames],
+        dtype=object,
+    )
     classnames = np.asarray(classnames, dtype=object)
 
     if vectors.ndim != 2:
