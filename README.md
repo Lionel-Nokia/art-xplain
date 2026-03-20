@@ -3,7 +3,7 @@
 
 
 ---
-_v 0.03.20.2300_
+_v 0.03.20.2315_
 - **Emmanuelle** - _manievfoulards@gmail.com_
 - **Lucile** - _lucilejosse.mail@gmail.com_
 - **Lionel** - _lion94.home@gmail.com_
@@ -59,25 +59,6 @@ art-xplain/art-xplain/notebooks/step_1_build_dataset_step_by_step.ipynb
 make dataset
 ```
 
-- #### Option python:
-
-```bash
-python -m src.build_dataset_from_csv
-```
-
-Options utiles:
-- Nettoyer `data/out` puis régénérer:
-
-```bash
-python -m src.build_dataset_from_csv --clean-out
-```
-
-- Nettoyer uniquement `data/out`:
-
-```bash
-python -m src.build_dataset_from_csv --clean-only
-```
-
 ### Étape 2 — Entraîner l'encodeur
 
 - #### Option notebook:
@@ -91,12 +72,6 @@ art-xplain/art-xplain/notebooks/step_2_train_encoder_step_by_step.ipynb
 
 ```bash
 make train
-```
-
-- #### Option python:
-
-```bash
-python -m src.build_encoder_model
 ```
 
 ### Étape 3 — Calculer les embeddings
@@ -114,12 +89,6 @@ art-xplain/art-xplain/notebooks/step_3_compute_embeddings_step_by_step.ipynb
 make embeddings
 ```
 
-- #### Option python:
-
-```bash
-python -m src.compute_embeddings
-```
-
 Fichiers générés dans `embeddings/`:
 - `vectors.npy`
 - `labels.npy`
@@ -134,33 +103,20 @@ Fichiers générés dans `embeddings/`:
 make umap
 ```
 
-- #### Option python:
-
-```bash
-python -m src.visualization_umap
-```
-
 Fichier généré:
 - `latent_2d.npy`
 
 ### Étape 5 — Lancer l'application Streamlit
 
-- #### Option make:
-
 ```bash
 make run
-```
-
-- #### Option manuelle:
-
-```bash
-cd art-xplain
-streamlit run src/app_streamlit.py
 ```
 
 ### Pipeline complet en une commande
 
 ```bash
+# dataset train embeddings umap
+
 make all
 ```
 
