@@ -199,6 +199,25 @@ def normalize_label_value(value: str) -> str:
             pass
     return text.replace("/", "_")
 
+
+def parse_keep_styles_config(value) -> list[str]:
+    """Normalize `dataset.keep_styles` from YAML into a clean label list."""
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        raw_items = value.split(",")
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        raise ValueError(
+            "dataset.keep_styles doit etre une liste YAML ou une chaine separee par des virgules."
+        )
+
+    normalized = [normalize_label_value(item) for item in raw_items if str(item).strip()]
+    # Conserve l'ordre de declaration tout en supprimant les doublons.
+    return list(dict.fromkeys(normalized))
+
 def materialize_split(split_df: pd.DataFrame, split: str, out_root: Path, images_root: Path,
                       filename_col: str, label_col: str) -> tuple[int, int]:
     """Copy dataset rows into `out_root/{split}/{label}/` folders.
@@ -372,13 +391,37 @@ def build_dataset(config_path: str | Path = "config/config.yaml", *, clean_out: 
     print_step(5, "Filtrage du dataset")
     images_root = detect_images_root_from_filenames(kaggle_root, images_hint, df[filename_col])
     keep_top_styles = int(cfg["dataset"]["keep_top_styles"])
+    keep_styles = parse_keep_styles_config(cfg["dataset"].get("keep_styles"))
     min_images_per_style = int(cfg["dataset"]["min_images_per_style"])
     max_images = cfg["dataset"].get("max_images")
     test_size = float(cfg["dataset"]["test_size"])
     val_size = float(cfg["dataset"]["val_size"])
 
     counts = df[label_col].value_counts()
-    keep = counts[counts >= min_images_per_style].head(keep_top_styles).index
+    eligible_counts = counts[counts >= min_images_per_style]
+
+    if keep_styles:
+        missing_styles = [style for style in keep_styles if style not in counts.index]
+        too_small_styles = [style for style in keep_styles if style in counts.index and counts[style] < min_images_per_style]
+        keep = [style for style in keep_styles if style in eligible_counts.index]
+
+        if not keep:
+            raise ValueError(
+                "Aucun style de dataset.keep_styles ne satisfait min_images_per_style."
+            )
+
+        if missing_styles:
+            print("Styles absents du catalogue:", missing_styles)
+        if too_small_styles:
+            print(
+                "Styles ignores car sous le seuil min_images_per_style:",
+                too_small_styles,
+            )
+        print("Mode de filtrage: liste manuelle dataset.keep_styles")
+    else:
+        keep = eligible_counts.head(keep_top_styles).index.tolist()
+        print("Mode de filtrage: top styles par frequence")
+
     df_filtered = df[df[label_col].isin(keep)].copy()
     if max_images is not None:
         df_filtered = limit_per_class(df_filtered, label_col, int(max_images))

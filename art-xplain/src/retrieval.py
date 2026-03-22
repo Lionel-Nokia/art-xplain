@@ -109,11 +109,10 @@ class StyleRetriever:
         # `compile=False` suffit car on ne veut pas entraîner le modèle ici,
         # seulement l'utiliser en inférence.
 
-        self.gradcam = None
-        # L'objet Grad-CAM n'est pas créé immédiatement.
-        # On applique ici une stratégie de "lazy loading" :
-        # on ne le construira que si l'utilisateur demande réellement
-        # une explication visuelle.
+        self.gradcam_explainers: dict[str, object] = {}
+        # Les explicateurs Grad-CAM++ sont créés à la demande, une fois par couche cible.
+        # Cela permet de proposer plusieurs couches dans l'interface sans reconstruire
+        # systématiquement l'objet à chaque interaction.
 
         self._gradcam_init_error = None
         # Permet de garder la trace d'une erreur éventuelle lors de l'initialisation
@@ -273,26 +272,46 @@ class StyleRetriever:
         return out
         # Retourne une liste de dictionnaires prête à être consommée par l'app Streamlit.
 
-    def explain_similarity(self, query_path: str | Path, candidate_path: str | Path) -> dict:
+    def available_explanation_layers(self) -> list[str]:
         """
-        Produit une explication visuelle de similarité entre deux images via Grad-CAM.
+        Retourne les couches convolutionnelles proposées pour Grad-CAM++.
+        """
+        from .gradcam_similarity import GradCamPlusPlusSimilarity
+
+        return GradCamPlusPlusSimilarity.list_target_layers(self.encoder)
+
+    def explain_similarity(
+        self,
+        query_path: str | Path,
+        candidate_path: str | Path,
+        target_layer_name: str | None = None,
+    ) -> dict:
+        """
+        Produit une explication visuelle de similarité entre deux images via Grad-CAM++.
 
         Cette méthode n'est utilisée que pour le meilleur résultat (`top-1`)
         quand l'utilisateur active l'option correspondante dans l'interface.
         """
-        if self.gradcam is None:
-            # Lazy loading : on ne construit l'objet Grad-CAM que lorsqu'il est demandé.
+        layer_key = target_layer_name or "__default__"
+
+        if layer_key not in self.gradcam_explainers:
+            # Lazy loading : on ne construit l'objet Grad-CAM++ que lorsqu'il est demandé.
             try:
-                from .gradcam_similarity import GradCamSimilarity
-                self.gradcam = GradCamSimilarity(self.encoder, img_size=self.img_size)
+                from .gradcam_similarity import GradCamPlusPlusSimilarity
+
+                self.gradcam_explainers[layer_key] = GradCamPlusPlusSimilarity(
+                    self.encoder,
+                    img_size=self.img_size,
+                    target_layer_name=target_layer_name,
+                )
                 # On réutilise le même encodeur que pour le retrieval,
                 # afin que l'explication soit cohérente avec le modèle réellement utilisé.
             except Exception as exc:
                 self._gradcam_init_error = exc
                 raise RuntimeError(
-                    f"Grad-CAM indisponible: {exc}. Le top-k reste utilisable."
+                    f"Grad-CAM++ indisponible: {exc}. Le top-k reste utilisable."
                 ) from exc
-                # Même si Grad-CAM n'est pas disponible, le retrieval standard reste fonctionnel.
+                # Même si Grad-CAM++ n'est pas disponible, le retrieval standard reste fonctionnel.
 
-        return self.gradcam.explain_similarity(query_path, candidate_path)
+        return self.gradcam_explainers[layer_key].explain_similarity(query_path, candidate_path)
         # Délègue le calcul à l'objet spécialisé.

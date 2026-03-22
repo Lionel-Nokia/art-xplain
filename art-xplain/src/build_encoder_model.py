@@ -51,8 +51,11 @@ def build_style_encoder_model(img_size: int, embed_dim: int, backbone: str, free
     Args:
         img_size: Size (height and width) of the input images in pixels.
         embed_dim: Dimensionality of the output embedding vector.
-        backbone: Name of the backbone architecture to use (currently only
-            "EfficientNetV2B0" is supported).
+        backbone: Name of the backbone architecture to use.
+            Supported values include:
+            - "EfficientNetV2-S"
+            - "EfficientNetV2-M"
+            - legacy aliases such as "EfficientNetV2B0"
         freeze_backbone: If True, the backbone weights are frozen (not trainable).
 
     Returns:
@@ -63,14 +66,27 @@ def build_style_encoder_model(img_size: int, embed_dim: int, backbone: str, free
     input_shape = (img_size, img_size, 3)
 
     # Select and configure the backbone model + corresponding preprocessing
-    if backbone == "EfficientNetV2B0":
-        base_model = tf.keras.applications.EfficientNetV2B0(
-            include_top=False, weights="imagenet", input_shape=input_shape
-        )
-        # Use the EfficientNetV2 preprocessing function to scale inputs correctly
-        preprocess = tf.keras.applications.efficientnet_v2.preprocess_input
-    else:
-        raise ValueError(f"Backbone non supporté: {backbone}")
+    backbone_aliases = {
+        "EfficientNetV2-S": tf.keras.applications.EfficientNetV2S,
+        "EfficientNetV2S": tf.keras.applications.EfficientNetV2S,
+        "EfficientNetV2-M": tf.keras.applications.EfficientNetV2M,
+        "EfficientNetV2M": tf.keras.applications.EfficientNetV2M,
+        # Compatibilite ascendante avec l'ancienne config du projet.
+        "EfficientNetV2B0": tf.keras.applications.EfficientNetV2B0,
+    }
+
+    backbone_builder = backbone_aliases.get(backbone)
+    if backbone_builder is None:
+        supported = ", ".join(backbone_aliases.keys())
+        raise ValueError(f"Backbone non supporté: {backbone}. Valeurs possibles: {supported}")
+
+    base_model = backbone_builder(
+        include_top=False,
+        weights="imagenet",
+        input_shape=input_shape,
+    )
+    # Use the EfficientNetV2 preprocessing function to scale inputs correctly
+    preprocess = tf.keras.applications.efficientnet_v2.preprocess_input
 
     # Enable or disable training for the backbone depending on config
     base_model.trainable = not freeze_backbone
