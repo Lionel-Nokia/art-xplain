@@ -248,7 +248,6 @@ def _extract_artist_and_title(filepath: str) -> tuple[str, str]:
         return "Inconnu", "Inconnu"
 
     return artist, title
-    # Retourne un tuple (artiste, titre).
 
 
 def _format_explanation_layer_options(layer_names: list[str]) -> tuple[list[str], dict[str, str]]:
@@ -502,6 +501,8 @@ def render_runtime_status() -> dict[str, object]:
     button_bg = "#fdecec" if has_error else "#eef6ff"
     button_fg = "#b42318" if has_error else "#175cd3"
     button_border = "#f04438" if has_error else "#84caff"
+    #status_icon = "🔴" if has_error else "🟢"
+    #button_label = f"État des ressources {status_icon}"
     button_label = "État des ressources"
 
     st.markdown(
@@ -702,6 +703,10 @@ if uploaded is not None and retriever is not None:
     # On l'utilise ensuite comme top-1 pour le style suggéré, Grad-CAM++ et le highlight UMAP.
     # Le reste de l'interface s'organise donc autour de ce meilleur voisin :
     # c'est lui qui sert de référence principale pour l'explication visuelle.
+    second_best = results[1] if len(results) > 1 else None
+    # Conserve aussi le top-2 quand il existe pour pouvoir le pointer dans l'UMAP.
+    third_best = results[2] if len(results) > 2 else None
+    # Conserve aussi le top-3 quand il existe pour l'afficher dans l'UMAP.
 
     # -------------------------------------------------------------------------
     # Affichage de l'image source
@@ -954,6 +959,27 @@ if uploaded is not None and retriever is not None:
             titles.append(title)
             # Remplit les listes pour les injecter ensuite dans le DataFrame.
 
+        similarity_by_filepath = {
+            str(res["filepath"]): f"{float(res['similarity']) * 100:.1f}%"
+            for res in results
+        }
+        # Associe chaque résultat retourné à son score de similarité formaté en pourcentage.
+        # Les autres points de l'UMAP n'ont pas de score lié à la requête courante.
+
+        tooltip_html = []
+        for fp, style, artist, title in zip(filenames, style_names, artists, titles):
+            similarity = similarity_by_filepath.get(str(fp))
+            lines = [
+                f"<b>Style:</b> {style}",
+                f"<b>Artiste:</b> {artist}",
+                f"<b>Tableau:</b> {title}",
+            ]
+            if similarity:
+                lines.append(f"<b>Similarité:</b> {similarity}")
+            tooltip_html.append("<br>".join(lines))
+        # Construit un contenu de tooltip sur mesure pour n'afficher la similarité
+        # que sur les points concernés par la requête courante.
+
         df_umap = pd.DataFrame(
             {
                 "x": latent_2d[:, 0],
@@ -976,6 +1002,9 @@ if uploaded is not None and retriever is not None:
 
                 "Fichier": short_filenames,
                 # Nom de fichier court.
+
+                "tooltip_html": tooltip_html,
+                # Tooltip HTML complet utilisé par Plotly pour chaque point.
 
                 "filepath": [str(fp) for fp in filenames],
                 # Chemin complet, potentiellement utile pour retrouver un point précis.
@@ -1020,12 +1049,14 @@ if uploaded is not None and retriever is not None:
                     "x": False,
                     "y": False,
                     "Label": False,
-                    "Style": True,
-                    "Artiste": True,
-                    "Tableau": True,
+                    "Style": False,
+                    "Artiste": False,
+                    "Tableau": False,
                     "Fichier": False,
+                    "tooltip_html": False,
                     "filepath": False,
                 },
+                custom_data=["tooltip_html"],
                 opacity=0.45,
                 title="Projection UMAP des embeddings",
             )
@@ -1037,8 +1068,73 @@ if uploaded is not None and retriever is not None:
             # Plotly Express est très pratique ici parce qu'il permet de produire
             # rapidement une visualisation riche à partir d'un DataFrame et de quelques arguments.
 
-            fig.update_traces(marker=dict(size=7))
+            fig.update_traces(
+                marker=dict(size=7),
+                hovertemplate="%{customdata[0]}<extra></extra>",
+            )
             # Réduit / fixe la taille des marqueurs pour améliorer la lisibilité du nuage.
+
+            upload_anchor_points = []
+            for res in results[:3]:
+                idx_res = _find_best_index(filenames, str(res["filepath"]))
+                if idx_res is None:
+                    continue
+                weight = max(float(res["similarity"]), 0.0)
+                upload_anchor_points.append(
+                    (
+                        float(latent_2d[idx_res, 0]),
+                        float(latent_2d[idx_res, 1]),
+                        weight,
+                    )
+                )
+
+            if upload_anchor_points:
+                total_weight = sum(weight for _, _, weight in upload_anchor_points)
+                if total_weight <= 0:
+                    total_weight = float(len(upload_anchor_points))
+                    upload_anchor_points = [(x, y, 1.0) for x, y, _ in upload_anchor_points]
+
+                x_upload = sum(x * weight for x, _, weight in upload_anchor_points) / total_weight
+                y_upload = sum(y * weight for _, y, weight in upload_anchor_points) / total_weight
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=[x_upload],
+                        y=[y_upload],
+                        mode="markers+text",
+                        name="Tableau uploadé",
+                        text=["Upload"],
+                        textposition="top left",
+                        marker=dict(
+                            size=17,
+                            symbol="star",
+                            color="#d92d20",
+                            line=dict(width=1.5, color="white"),
+                        ),
+                        hovertemplate=(
+                            "<b>Tableau uploadé</b><br>"
+                            f"Artiste: {source_artist}<br>"
+                            f"Tableau: {source_title}<br>"
+                            "Position estimée depuis les top résultats"
+                            "<extra></extra>"
+                        ),
+                        showlegend=False,
+                    )
+                )
+
+                fig.add_annotation(
+                    x=x_upload,
+                    y=y_upload,
+                    text="Upload",
+                    showarrow=True,
+                    arrowhead=2,
+                    ax=28,
+                    ay=-16,
+                    bgcolor="#fef3f2",
+                    bordercolor="#d92d20",
+                    borderwidth=1,
+                )
+            # Le point Upload est estimé à partir des meilleurs voisins déjà projetés.
 
             idx_best = _find_best_index(filenames, str(best["filepath"]))
             # Tente de retrouver le point UMAP correspondant au meilleur résultat top-1.
@@ -1075,10 +1171,10 @@ if uploaded is not None and retriever is not None:
                             f"Artiste: {best_artist}<br>"
                             f"Tableau: {best_title}<br>"
                             f"Fichier: {best_filename}<br>"
-                            f"Similarité: {best['similarity']:.3f}"
+                            f"Similarité: {float(best['similarity']) * 100:.1f}%"
                             "<extra></extra>"
                         ),
-                        showlegend=True,
+                        showlegend=False,
                     )
                 )
                 # Ajoute une nouvelle trace Plotly pour surligner visuellement le top-1.
@@ -1094,7 +1190,7 @@ if uploaded is not None and retriever is not None:
                 fig.add_annotation(
                     x=x_best,
                     y=y_best,
-                    text=f"Top-1 : {best['style']}",
+                    text="Top 1",
                     showarrow=True,
                     arrowhead=2,
                     ax=20,
@@ -1107,11 +1203,114 @@ if uploaded is not None and retriever is not None:
                 # ax et ay contrôlent le décalage de l'étiquette par rapport au point.
                 # bgcolor, bordercolor et borderwidth améliorent la lisibilité de l'annotation.
 
+            if second_best is not None:
+                idx_second = _find_best_index(filenames, str(second_best["filepath"]))
+                # Tente de retrouver le point UMAP correspondant au deuxième meilleur résultat.
+
+                if idx_second is not None:
+                    x_second = latent_2d[idx_second, 0]
+                    y_second = latent_2d[idx_second, 1]
+                    second_filename = Path(str(second_best["filepath"])).name
+                    second_artist, second_title = _extract_artist_and_title(second_best["filepath"])
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[x_second],
+                            y=[y_second],
+                            mode="markers+text",
+                            name="Top-2 sélectionné",
+                            text=[second_best["style"]],
+                            textposition="bottom center",
+                            marker=dict(
+                                size=16,
+                                symbol="diamond-open",
+                                line=dict(width=3, color="#b54708"),
+                            ),
+                            hovertemplate=(
+                                "<b>Top-2 sélectionné</b><br>"
+                                f"Style: {second_best['style']}<br>"
+                                f"Artiste: {second_artist}<br>"
+                                f"Tableau: {second_title}<br>"
+                                f"Fichier: {second_filename}<br>"
+                                f"Similarité: {float(second_best['similarity']) * 100:.1f}%"
+                                "<extra></extra>"
+                            ),
+                            showlegend=False,
+                        )
+                    )
+
+                    fig.add_annotation(
+                        x=x_second,
+                        y=y_second,
+                        text="Top 2",
+                        showarrow=True,
+                        arrowhead=2,
+                        ax=-24,
+                        ay=34,
+                        bgcolor="#fff7ed",
+                        bordercolor="#b54708",
+                        borderwidth=1,
+                    )
+                    # Ajoute un second repère, visuellement distinct du top-1.
+
+            if third_best is not None:
+                idx_third = _find_best_index(filenames, str(third_best["filepath"]))
+                # Tente de retrouver le point UMAP correspondant au troisième meilleur résultat.
+
+                if idx_third is not None:
+                    x_third = latent_2d[idx_third, 0]
+                    y_third = latent_2d[idx_third, 1]
+                    third_filename = Path(str(third_best["filepath"])).name
+                    third_artist, third_title = _extract_artist_and_title(third_best["filepath"])
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[x_third],
+                            y=[y_third],
+                            mode="markers+text",
+                            name="Top-3 sélectionné",
+                            text=[third_best["style"]],
+                            textposition="middle right",
+                            marker=dict(
+                                size=15,
+                                symbol="square-open",
+                                line=dict(width=3, color="#175cd3"),
+                            ),
+                            hovertemplate=(
+                                "<b>Top-3 sélectionné</b><br>"
+                                f"Style: {third_best['style']}<br>"
+                                f"Artiste: {third_artist}<br>"
+                                f"Tableau: {third_title}<br>"
+                                f"Fichier: {third_filename}<br>"
+                                f"Similarité: {float(third_best['similarity']) * 100:.1f}%"
+                                "<extra></extra>"
+                            ),
+                            showlegend=False,
+                        )
+                    )
+
+                    fig.add_annotation(
+                        x=x_third,
+                        y=y_third,
+                        text="Top 3",
+                        showarrow=True,
+                        arrowhead=2,
+                        ax=34,
+                        ay=18,
+                        bgcolor="#eff8ff",
+                        bordercolor="#175cd3",
+                        borderwidth=1,
+                    )
+                    # Ajoute un troisième repère distinct pour le top-3.
+
             fig.update_layout(
                 xaxis_title="Dimension UMAP 1",
                 yaxis_title="Dimension UMAP 2",
                 legend_title="Styles",
                 height=700,
+                hoverlabel=dict(
+                    font=dict(size=16),
+                ),
             )
             # Personnalise la mise en page du graphique :
             # titres d'axes, titre de légende et hauteur globale du composant.
@@ -1123,10 +1322,16 @@ if uploaded is not None and retriever is not None:
             st.caption(
                 "Chaque point représente une œuvre projetée dans un espace latent 2D. "
                 "Les couleurs correspondent aux styles artistiques. "
-                "Le point entouré correspond au meilleur résultat (top-1)."
+                "Les points annotés correspondent au tableau uploadé ainsi qu'aux meilleurs résultats top-1, top-2 et top-3."
             )
             # Ajoute une légende explicative sous le graphique pour aider l'utilisateur
             # à interpréter la visualisation.
+
+            st.caption(
+                "Note : la proximité visuelle dans l'UMAP ne correspond pas toujours exactement "
+                "au classement de similarité, car la projection 2D déforme partiellement "
+                "les distances calculées dans l'espace latent d'origine."
+            )
 
 elif uploaded is None:
     if upload_disabled:
