@@ -92,6 +92,19 @@ st.title("Art-Xplain — Similarité stylistique")
 # Affiche le titre principal de l'application en haut de la page.
 # C'est le premier élément visible par l'utilisateur.
 
+st.markdown(
+    """
+    <style>
+    div[data-testid="stButton"] > button {
+        width: 100%;
+        justify-content: flex-start;
+        text-align: left;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # =============================================================================
 # CHARGEMENT DU MOTEUR DE RETRIEVAL
@@ -248,7 +261,8 @@ def _extract_artist_and_title(filepath: str) -> tuple[str, str]:
         return "Inconnu", "Inconnu"
 
     return artist, title
-    # Retourne un tuple (artiste, titre).
+
+
 
 
 def _format_explanation_layer_options(layer_names: list[str]) -> tuple[list[str], dict[str, str]]:
@@ -275,11 +289,47 @@ def _format_explanation_layer_options(layer_names: list[str]) -> tuple[list[str]
     return layer_names, labels_by_name
 
 
+def _select_explanation_layers(layer_names: list[str], layer_numbers: list[int]) -> tuple[list[tuple[int, str]], list[int]]:
+    """
+    Selectionne des couches Grad-CAM++ par position humaine (1-based).
+    """
+    if not layer_names:
+        return [], layer_numbers
+
+    selected_layers: list[tuple[int, str]] = []
+    missing_layers: list[int] = []
+
+    for layer_number in layer_numbers:
+        idx = layer_number - 1
+        if 0 <= idx < len(layer_names):
+            selected_layers.append((layer_number, layer_names[idx]))
+        else:
+            missing_layers.append(layer_number)
+
+    return selected_layers, missing_layers
+
+
 # =============================================================================
 # CHARGEMENT DES DONNÉES LATENTES (UMAP + MÉTADONNÉES)
 # =============================================================================
 
 @st.cache_data
+def _load_umap_bundle(bundle_path: str) -> dict[str, np.ndarray]:
+    """
+    Charge le bundle UMAP compressé et retourne ses tableaux.
+    """
+    with np.load(bundle_path, allow_pickle=True) as data:
+        return {key: data[key] for key in data.files}
+
+
+@st.cache_data
+def _load_numpy_array(path: str, allow_pickle: bool = False) -> np.ndarray:
+    """
+    Charge un tableau NumPy depuis le disque avec mise en cache Streamlit.
+    """
+    return np.load(path, allow_pickle=allow_pickle)
+
+
 def load_latent_and_meta():
     """
     Charge les données nécessaires à la visualisation UMAP interactive.
@@ -304,102 +354,125 @@ def load_latent_and_meta():
     # Récupère le dossier racine où sont stockés les embeddings et métadonnées.
     # On convertit ce chemin en Path pour manipulations propres ensuite.
 
+    progress_text = st.empty()
+    progress_bar = st.progress(0)
+
+    def update_progress(step: int, total: int, message: str) -> None:
+        progress_text.caption(f"Chargement des espaces latents : {message}")
+        progress_bar.progress(step / total)
+
     bundle_path = emb_root / "umap_bundle.npz"
     # Construit le chemin vers un fichier compressé .npz contenant potentiellement
     # toutes les données nécessaires à l'affichage UMAP dans un seul bundle.
 
-    if bundle_path.exists():
-        data = np.load(bundle_path, allow_pickle=True)
+    try:
+        if bundle_path.exists():
+            update_progress(1, 5, "ouverture du bundle UMAP")
+            data = _load_umap_bundle(str(bundle_path))
         # Si le bundle existe, on le charge.
         # np.load(..., allow_pickle=True) permet de lire des objets Python sérialisés,
         # ce qui peut être nécessaire pour classnames ou filenames.
 
-        required_keys = {"latent_2d", "labels", "classnames", "filenames"}
+            required_keys = {"latent_2d", "labels", "classnames", "filenames"}
         # Ensemble des clés indispensables pour que l'UMAP fonctionne correctement.
 
-        missing = required_keys.difference(set(data.files))
+            update_progress(2, 5, "vérification du contenu du bundle")
+            missing = required_keys.difference(set(data.keys()))
         # data.files contient les clés présentes dans le fichier .npz.
         # On calcule celles qui manquent.
 
-        if missing:
-            raise ValueError(
-                f"Le bundle UMAP est incomplet. Clés manquantes: {sorted(missing)}"
-            )
+            if missing:
+                raise ValueError(
+                    f"Le bundle UMAP est incomplet. Clés manquantes: {sorted(missing)}"
+                )
             # On arrête explicitement avec un message clair plutôt que de laisser
             # l'application échouer plus loin de manière obscure.
 
-        latent_2d = np.asarray(data["latent_2d"])
+            update_progress(3, 5, "lecture de la projection UMAP")
+            latent_2d = np.asarray(data["latent_2d"])
         # Projection 2D des embeddings, typiquement shape (N, 2).
 
-        labels = np.asarray(data["labels"])
+            update_progress(4, 5, "lecture des labels et métadonnées")
+            labels = np.asarray(data["labels"])
         # Labels numériques associés à chaque point.
 
-        classnames = _coerce_object_array(data["classnames"])
+            classnames = _coerce_object_array(data["classnames"])
         # Noms des classes / styles, convertis proprement en array object.
 
-        filenames = _coerce_object_array(
-            [str(resolve_stored_path(fp)) for fp in data["filenames"]]
-        )
+            filenames = _coerce_object_array(
+                [str(resolve_stored_path(fp)) for fp in data["filenames"]]
+            )
         # Chemins ou noms des fichiers correspondant à chaque point projeté.
 
-    else:
-        latent_path = emb_root / "latent_2d.npy"
+        else:
+            latent_path = emb_root / "latent_2d.npy"
         # Si le bundle complet n'existe pas, on tente un chargement à partir de fichiers séparés.
 
-        if not latent_path.exists():
-            return None
+            if not latent_path.exists():
+                progress_text.empty()
+                progress_bar.empty()
+                return None
             # Si même la projection principale n'existe pas, on considère que l'UMAP
             # n'est pas disponible et on renvoie None.
 
-        latent_2d = np.load(latent_path)
+            update_progress(1, 5, "lecture de la projection UMAP")
+            latent_2d = _load_numpy_array(str(latent_path))
         # Charge la projection 2D.
 
-        labels = np.load(emb_root / "labels.npy")
+            update_progress(2, 5, "lecture des labels")
+            labels = _load_numpy_array(str(emb_root / "labels.npy"))
         # Charge les labels.
 
-        classnames = np.load(emb_root / "classnames.npy", allow_pickle=True)
+            update_progress(3, 5, "lecture des noms de styles")
+            classnames = _load_numpy_array(str(emb_root / "classnames.npy"), allow_pickle=True)
         # Charge les noms de classes.
 
-        filenames = np.load(emb_root / "filenames.npy", allow_pickle=True)
+            update_progress(4, 5, "lecture des chemins d'oeuvres")
+            filenames = _load_numpy_array(str(emb_root / "filenames.npy"), allow_pickle=True)
         # Charge les chemins de fichiers.
 
-        latent_2d = np.asarray(latent_2d)
-        labels = np.asarray(labels)
-        classnames = _coerce_object_array(classnames)
-        filenames = _coerce_object_array([str(resolve_stored_path(fp)) for fp in filenames])
+            latent_2d = np.asarray(latent_2d)
+            labels = np.asarray(labels)
+            classnames = _coerce_object_array(classnames)
+            filenames = _coerce_object_array([str(resolve_stored_path(fp)) for fp in filenames])
         # Uniformisation des types pour la suite du traitement.
 
-    if latent_2d.ndim != 2 or latent_2d.shape[1] < 2:
-        raise ValueError(
-            f"Projection UMAP invalide: shape={latent_2d.shape}, attendu=(N, 2)"
-        )
+        update_progress(5, 5, "validation finale")
+
+        if latent_2d.ndim != 2 or latent_2d.shape[1] < 2:
+            raise ValueError(
+                f"Projection UMAP invalide: shape={latent_2d.shape}, attendu=(N, 2)"
+            )
         # Vérifie que la projection a bien 2 dimensions au sens matrice
         # et au moins 2 colonnes.
         # UMAP destiné à un scatter 2D doit fournir un tableau de forme (N, 2).
 
-    n_latent = int(latent_2d.shape[0])
+        n_latent = int(latent_2d.shape[0])
     # Nombre de points dans la projection.
 
-    n_labels = int(len(labels))
+        n_labels = int(len(labels))
     # Nombre de labels.
 
-    n_filenames = int(len(filenames))
+        n_filenames = int(len(filenames))
     # Nombre de fichiers.
 
-    if not (n_latent == n_labels == n_filenames):
-        raise ValueError(
-            "Incohérence entre latent_2d, labels et filenames.\n"
-            f" - latent_2d : {n_latent}\n"
-            f" - labels    : {n_labels}\n"
-            f" - filenames : {n_filenames}\n"
-            "Relance compute_embeddings.py puis visualization_umap.py."
-        )
+        if not (n_latent == n_labels == n_filenames):
+            raise ValueError(
+                "Incohérence entre latent_2d, labels et filenames.\n"
+                f" - latent_2d : {n_latent}\n"
+                f" - labels    : {n_labels}\n"
+                f" - filenames : {n_filenames}\n"
+                "Relance compute_embeddings.py puis visualization_umap.py."
+            )
         # Contrôle de cohérence fondamental : chaque point projeté doit correspondre
         # à un label et à un fichier, ni plus ni moins.
         # Le message d'erreur guide aussi vers les scripts à relancer.
 
-    return latent_2d, labels, classnames, filenames
+        return latent_2d, labels, classnames, filenames
     # Renvoie l'ensemble des données nécessaires à la visualisation interactive.
+    finally:
+        progress_text.empty()
+        progress_bar.empty()
 
 
 @st.cache_data
@@ -502,6 +575,8 @@ def render_runtime_status() -> dict[str, object]:
     button_bg = "#fdecec" if has_error else "#eef6ff"
     button_fg = "#b42318" if has_error else "#175cd3"
     button_border = "#f04438" if has_error else "#84caff"
+    #status_icon = "🔴" if has_error else "🟢"
+    #button_label = f"État des ressources {status_icon}"
     button_label = "État des ressources"
 
     st.markdown(
@@ -620,34 +695,33 @@ uploaded = st.file_uploader(
 # La variable 'uploaded' contiendra soit None (si rien n'est chargé),
 # soit un objet UploadedFile fourni par Streamlit.
 
+uploaded_signature = None
+if uploaded is not None:
+    uploaded_signature = f"{uploaded.name}:{uploaded.size}"
+
+if uploaded_signature != st.session_state.get("uploaded_signature"):
+    st.session_state["uploaded_signature"] = uploaded_signature
+    if uploaded_signature is not None:
+        st.session_state["source_mode"] = "uploaded"
+
 k = 4
 # Nombre de résultats similaires à demander au moteur.
 # Ici, on fixe top-k à 4 de manière statique.
 # Une version plus avancée pourrait exposer ce paramètre à l'utilisateur via
 # un slider Streamlit, mais le garder fixe simplifie l'expérience.
 
-show_gradcam = st.checkbox(
-    "Afficher Grad-CAM++ (top-1)",
+show_gradcam_history = st.checkbox(
+    "Grad-CAM history",
     value=False,
 )
-# Ajoute une case à cocher pour activer ou non la visualisation Grad-CAM++.
+# Ajoute une case à cocher pour activer ou non l'historique Grad-CAM++.
 # value=False signifie qu'elle est décochée par défaut.
 # Cette option déclenche potentiellement un calcul coûteux, d'où son caractère optionnel.
 
-gradcam_layer_name = None
-if show_gradcam and retriever is not None:
+available_layers: list[str] = []
+if show_gradcam_history and retriever is not None:
     available_layers = retriever.available_explanation_layers()
-    if available_layers:
-        layer_options, layer_labels = _format_explanation_layer_options(available_layers)
-        gradcam_layer_name = st.selectbox(
-            "Couche Grad-CAM++",
-            options=layer_options,
-            index=len(layer_options) - 1,
-            format_func=lambda name: layer_labels.get(name, name),
-            help="Choisis une couche precoce, intermediaire ou profonde pour generer la carte d'attention.",
-        )
-        st.caption(f"Couche technique utilisee : `{gradcam_layer_name}`")
-    else:
+    if not available_layers:
         st.warning("Aucune couche compatible n'a été trouvée pour Grad-CAM++.")
 
 
@@ -655,30 +729,54 @@ if show_gradcam and retriever is not None:
 # TRAITEMENT PRINCIPAL
 # =============================================================================
 
-if uploaded is not None and retriever is not None:
+if retriever is not None:
     # Toute la logique principale de recherche est exécutée seulement
-    # si l'utilisateur a effectivement uploadé une image.
+    # si l'utilisateur a effectivement uploadé une image
+    # ou sélectionné une œuvre des résultats comme nouvelle source.
     # Cette condition joue le rôle de "point d'entrée utilisateur" du workflow.
-    # Tant qu'aucune image n'est fournie, l'application reste dans un état d'attente.
+    # Tant qu'aucune image n'est fournie ou sélectionnée, l'application reste dans un état d'attente.
 
-    suffix = Path(uploaded.name).suffix if uploaded.name else ".jpg"
-    # On récupère l'extension du fichier uploadé (.jpg, .png, etc.)
-    # pour la réutiliser dans le fichier temporaire.
-    # Si uploaded.name est absent, on prend .jpg par défaut.
+    query_path = None
+    source_display_name = None
+    source_notice = None
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
-        # Crée un fichier temporaire sur disque.
-        # delete=False signifie que le fichier ne sera pas supprimé automatiquement
-        # à la fermeture du contexte.
-        # C'est utile si le moteur de retrieval attend un chemin de fichier réel.
-        f.write(uploaded.read())
-        # Lit le contenu binaire du fichier uploadé puis l'écrit dans le fichier temporaire.
+    if (
+        st.session_state.get("source_mode") == "gallery"
+        and st.session_state.get("source_image_path")
+    ):
+        query_path = str(st.session_state["source_image_path"])
+        source_display_name = str(
+            st.session_state.get("source_image_name", Path(query_path).name)
+        )
+        source_notice = f"Image source sélectionnée depuis les résultats : `{source_display_name}`"
 
-        query_path = f.name
-        # Stocke le chemin du fichier temporaire.
-        # Ce chemin sera passé au moteur de recherche.
-        # On passe donc d'un objet Streamlit en mémoire à un fichier concret sur disque,
-        # ce qui facilite l'intégration avec du code existant orienté "path de fichier".
+    elif uploaded is not None:
+        suffix = Path(uploaded.name).suffix if uploaded.name else ".jpg"
+        # On récupère l'extension du fichier uploadé (.jpg, .png, etc.)
+        # pour la réutiliser dans le fichier temporaire.
+        # Si uploaded.name est absent, on prend .jpg par défaut.
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+            # Crée un fichier temporaire sur disque.
+            # delete=False signifie que le fichier ne sera pas supprimé automatiquement
+            # à la fermeture du contexte.
+            # C'est utile si le moteur de retrieval attend un chemin de fichier réel.
+            f.write(uploaded.read())
+            # Lit le contenu binaire du fichier uploadé puis l'écrit dans le fichier temporaire.
+
+            query_path = f.name
+            # Stocke le chemin du fichier temporaire.
+            # Ce chemin sera passé au moteur de recherche.
+            # On passe donc d'un objet Streamlit en mémoire à un fichier concret sur disque,
+            # ce qui facilite l'intégration avec du code existant orienté "path de fichier".
+
+        source_display_name = uploaded.name or Path(query_path).name
+
+    if query_path is None:
+        st.stop()
+
+    if source_notice:
+        st.info(source_notice)
 
     with st.spinner("Recherche des œuvres similaires..."):
         results = retriever.top_k_similar(query_path, k=k)
@@ -702,6 +800,10 @@ if uploaded is not None and retriever is not None:
     # On l'utilise ensuite comme top-1 pour le style suggéré, Grad-CAM++ et le highlight UMAP.
     # Le reste de l'interface s'organise donc autour de ce meilleur voisin :
     # c'est lui qui sert de référence principale pour l'explication visuelle.
+    second_best = results[1] if len(results) > 1 else None
+    # Conserve aussi le top-2 quand il existe pour pouvoir le pointer dans l'UMAP.
+    third_best = results[2] if len(results) > 2 else None
+    # Conserve aussi le top-3 quand il existe pour l'afficher dans l'UMAP.
 
     # -------------------------------------------------------------------------
     # Affichage de l'image source
@@ -721,7 +823,7 @@ if uploaded is not None and retriever is not None:
     # width=600 fixe une largeur d'affichage en pixels.
     # La ligne width="stretch" est commentée : elle aurait étiré l'image selon l'espace dispo.
 
-    source_artist, source_title = _extract_artist_and_title(uploaded.name or query_path)
+    source_artist, source_title = _extract_artist_and_title(source_display_name or query_path)
     st.markdown(
         f"""
         <p style="line-height:1.1; margin:0;">
@@ -777,19 +879,23 @@ if uploaded is not None and retriever is not None:
             st.markdown(
                 f"""
                 <p style="line-height:1.1; margin:0;">
-                    <strong>{artist}</strong> <br>
-                    <em>{title}</em>
+                    <strong>{artist}</strong>
                 </p>
                 """,
                 unsafe_allow_html=True
             )
-            # Affiche en HTML l'artiste et le titre juste sous l'image.
-            # <strong> met le nom de l'artiste en gras.
-            # <em> met le titre en italique.
-            # line-height réduit l'espacement vertical.
-            # margin:0 évite des marges inutiles.
-            # unsafe_allow_html=True autorise l'interprétation HTML par Streamlit.
-            # Il faut l'utiliser avec prudence, mais ici le contenu est simple et maîtrisé.
+
+            if st.button(
+                f"*{title}*",
+                key=f"use-as-source-{i}",
+                help="Cliquer pour charger cette œuvre comme nouvelle image source",
+            ):
+                st.session_state["source_mode"] = "gallery"
+                st.session_state["source_image_path"] = str(res["filepath"])
+                st.session_state["source_image_name"] = Path(str(res["filepath"])).name
+                st.rerun()
+            # Le titre devient cliquable : un clic relance la recherche
+            # avec cette œuvre comme nouvelle image source.
 
     # -------------------------------------------------------------------------
     # Tableau récapitulatif
@@ -842,69 +948,510 @@ if uploaded is not None and retriever is not None:
     # hide_index=True masque l'index par défaut de Pandas, peu utile ici.
 
     # -------------------------------------------------------------------------
+    # Visualisation UMAP
+    # -------------------------------------------------------------------------
+    if latent_error is not None:
+        st.warning(f"Visualisation UMAP indisponible : {latent_error}")
+        # Si le chargement UMAP a échoué plus tôt, on affiche l'erreur ici.
+
+    elif latent_bundle is not None:
+        with st.expander("Espace latent (UMAP interactif)", expanded=False):
+            latent_2d, labels, classnames, filenames = latent_bundle
+            # Décompacte les 4 éléments retournés par load_latent_and_meta().
+
+            style_names = _build_style_names(labels, classnames)
+            # Convertit les labels numériques en noms de styles lisibles.
+            # C'est un point pédagogique important :
+            # les modèles et fichiers intermédiaires manipulent volontiers des identifiants numériques,
+            # alors que l'interface doit toujours afficher des informations interprétables humainement.
+
+            short_filenames = [Path(str(fp)).name for fp in filenames]
+            # Crée une version courte des noms de fichiers, sans les chemins,
+            # pour un affichage plus propre dans les tooltips.
+
+            artists = []
+            titles = []
+            # Prépare deux listes qui contiendront artiste et titre pour chaque point UMAP.
+
+            for fp in filenames:
+                artist, title = _extract_artist_and_title(str(fp))
+                # Extrait artiste et titre depuis chaque nom de fichier.
+
+                artists.append(artist)
+                titles.append(title)
+                # Remplit les listes pour les injecter ensuite dans le DataFrame.
+
+            similarity_by_filepath = {
+                str(res["filepath"]): f"{float(res['similarity']) * 100:.1f}%"
+                for res in results
+            }
+            # Associe chaque résultat retourné à son score de similarité formaté en pourcentage.
+            # Les autres points de l'UMAP n'ont pas de score lié à la requête courante.
+
+            tooltip_html = []
+            for fp, style, artist, title in zip(filenames, style_names, artists, titles):
+                similarity = similarity_by_filepath.get(str(fp))
+                lines = [
+                    f"<b>Style:</b> {style}",
+                    f"<b>Artiste:</b> {artist}",
+                    f"<b>Tableau:</b> {title}",
+                ]
+                if similarity:
+                    lines.append(f"<b>Similarité:</b> {similarity}")
+                tooltip_html.append("<br>".join(lines))
+            # Construit un contenu de tooltip sur mesure pour n'afficher la similarité
+            # que sur les points concernés par la requête courante.
+
+            df_umap = pd.DataFrame(
+                {
+                    "x": latent_2d[:, 0],
+                    # Première coordonnée UMAP de chaque point.
+
+                    "y": latent_2d[:, 1],
+                    # Deuxième coordonnée UMAP de chaque point.
+
+                    "Label": labels,
+                    # Label brut de classe.
+
+                    "Style": style_names,
+                    # Nom lisible du style.
+
+                    "Artiste": artists,
+                    # Artiste extrait du nom de fichier.
+
+                    "Tableau": titles,
+                    # Titre de l'œuvre.
+
+                    "Fichier": short_filenames,
+                    # Nom de fichier court.
+
+                    "tooltip_html": tooltip_html,
+                    # Tooltip HTML complet utilisé par Plotly pour chaque point.
+
+                    "filepath": [str(fp) for fp in filenames],
+                    # Chemin complet, potentiellement utile pour retrouver un point précis.
+                }
+            )
+            # On rassemble ici toutes les données utiles dans un DataFrame unique.
+            # Ce choix simplifie beaucoup la suite, car Plotly Express et les filtres Pandas
+            # travaillent très naturellement avec ce format tabulaire.
+            # En d'autres termes : on convertit des tableaux NumPy "techniques"
+            # en structure "métier / interface" plus facile à manipuler.
+
+            styles_disponibles = sorted(df_umap["Style"].astype(str).unique().tolist())
+            # Récupère la liste unique des styles présents dans le DataFrame,
+            # convertie en chaînes, puis triée alphabétiquement.
+            # Cela sert de base aux filtres interactifs.
+
+            styles_selectionnes = st.multiselect(
+                "Filtrer les styles affichés dans l'UMAP",
+                options=styles_disponibles,
+                default=styles_disponibles,
+            )
+            # Affiche une sélection multiple permettant à l'utilisateur de choisir
+            # quels styles afficher.
+            # Par défaut, tous les styles sont sélectionnés.
+
+            df_umap_filtered = df_umap[df_umap["Style"].isin(styles_selectionnes)].copy()
+            # Filtre les points UMAP selon les styles choisis.
+            # .copy() évite certains avertissements Pandas liés aux vues/slices.
+            # C'est aussi plus sûr si l'on souhaite modifier ensuite le DataFrame filtré
+            # sans impacter accidentellement l'original.
+
+            if df_umap_filtered.empty:
+                st.warning("Aucun point à afficher : aucun style sélectionné.")
+                # Si l'utilisateur désélectionne tout, on l'indique explicitement.
+            else:
+                fig = px.scatter(
+                    df_umap_filtered,
+                    x="x",
+                    y="y",
+                    color="Style",
+                    hover_data={
+                        "x": False,
+                        "y": False,
+                        "Label": False,
+                        "Style": False,
+                        "Artiste": False,
+                        "Tableau": False,
+                        "Fichier": False,
+                        "tooltip_html": False,
+                        "filepath": False,
+                    },
+                    custom_data=["tooltip_html"],
+                    opacity=0.45,
+                    title="Projection UMAP des embeddings",
+                )
+                # Crée un nuage de points interactif Plotly.
+                # color="Style" colore les points par style.
+                # hover_data permet de choisir précisément quelles colonnes apparaissent au survol.
+                # x, y, Label, filepath, etc. peuvent être masqués pour garder un tooltip lisible.
+                # opacity=0.45 rend les points semi-transparents, utile quand ils se chevauchent.
+                # Plotly Express est très pratique ici parce qu'il permet de produire
+                # rapidement une visualisation riche à partir d'un DataFrame et de quelques arguments.
+
+                fig.update_traces(
+                    marker=dict(size=7),
+                    hovertemplate="%{customdata[0]}<extra></extra>",
+                )
+                # Réduit / fixe la taille des marqueurs pour améliorer la lisibilité du nuage.
+
+                upload_anchor_points = []
+                for res in results[:3]:
+                    idx_res = _find_best_index(filenames, str(res["filepath"]))
+                    if idx_res is None:
+                        continue
+                    weight = max(float(res["similarity"]), 0.0)
+                    upload_anchor_points.append(
+                        (
+                            float(latent_2d[idx_res, 0]),
+                            float(latent_2d[idx_res, 1]),
+                            weight,
+                        )
+                    )
+
+                if upload_anchor_points:
+                    total_weight = sum(weight for _, _, weight in upload_anchor_points)
+                    if total_weight <= 0:
+                        total_weight = float(len(upload_anchor_points))
+                        upload_anchor_points = [(x, y, 1.0) for x, y, _ in upload_anchor_points]
+
+                    x_upload = sum(x * weight for x, _, weight in upload_anchor_points) / total_weight
+                    y_upload = sum(y * weight for _, y, weight in upload_anchor_points) / total_weight
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[x_upload],
+                            y=[y_upload],
+                            mode="markers+text",
+                            name="Tableau uploadé",
+                            text=["Upload"],
+                            textposition="top left",
+                            marker=dict(
+                                size=17,
+                                symbol="star",
+                                color="#d92d20",
+                                line=dict(width=1.5, color="white"),
+                            ),
+                            hovertemplate=(
+                                "<b>Tableau uploadé</b><br>"
+                                f"Artiste: {source_artist}<br>"
+                                f"Tableau: {source_title}<br>"
+                                "Position estimée depuis les top résultats"
+                                "<extra></extra>"
+                            ),
+                            showlegend=False,
+                        )
+                    )
+
+                    fig.add_annotation(
+                        x=x_upload,
+                        y=y_upload,
+                        text="Upload",
+                        showarrow=True,
+                        arrowhead=2,
+                        ax=28,
+                        ay=-16,
+                        bgcolor="#fef3f2",
+                        bordercolor="#d92d20",
+                        borderwidth=1,
+                    )
+                # Le point Upload est estimé à partir des meilleurs voisins déjà projetés.
+
+                idx_best = _find_best_index(filenames, str(best["filepath"]))
+                # Tente de retrouver le point UMAP correspondant au meilleur résultat top-1.
+
+                if idx_best is not None:
+                    x_best = latent_2d[idx_best, 0]
+                    # Coordonnée x du meilleur point.
+
+                    y_best = latent_2d[idx_best, 1]
+                    # Coordonnée y du meilleur point.
+
+                    best_filename = Path(str(best["filepath"])).name
+                    # Nom de fichier du meilleur résultat, sans son chemin.
+
+                    best_artist, best_title = _extract_artist_and_title(best["filepath"])
+                    # Extrait artiste et titre pour enrichir le tooltip du point mis en évidence.
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[x_best],
+                            y=[y_best],
+                            mode="markers+text",
+                            name="Top-1 sélectionné",
+                            text=[best["style"]],
+                            textposition="top center",
+                            marker=dict(
+                                size=18,
+                                symbol="circle-open",
+                                line=dict(width=3, color="black"),
+                            ),
+                            hovertemplate=(
+                                "<b>Top-1 sélectionné</b><br>"
+                                f"Style: {best['style']}<br>"
+                                f"Artiste: {best_artist}<br>"
+                                f"Tableau: {best_title}<br>"
+                                f"Fichier: {best_filename}<br>"
+                                f"Similarité: {float(best['similarity']) * 100:.1f}%"
+                                "<extra></extra>"
+                            ),
+                            showlegend=False,
+                        )
+                    )
+                    # Ajoute une nouvelle trace Plotly pour surligner visuellement le top-1.
+                    # mode="markers+text" affiche à la fois un point et un texte.
+                    # symbol="circle-open" dessine un cercle vide autour du point.
+                    # line=dict(...) définit le contour noir épais.
+                    # hovertemplate personnalise complètement le contenu du tooltip.
+                    # <extra></extra> supprime le petit encart supplémentaire Plotly souvent peu utile.
+                    # On passe ici de Plotly Express (très pratique pour la base du graphique)
+                    # à Plotly Graph Objects (plus bas niveau) afin d'ajouter une surcouche
+                    # vraiment sur mesure.
+
+                    fig.add_annotation(
+                        x=x_best,
+                        y=y_best,
+                        text="Top 1",
+                        showarrow=True,
+                        arrowhead=2,
+                        ax=20,
+                        ay=-30,
+                        bgcolor="white",
+                        bordercolor="black",
+                        borderwidth=1,
+                    )
+                    # Ajoute une annotation textuelle avec flèche pointant vers le meilleur résultat.
+                    # ax et ay contrôlent le décalage de l'étiquette par rapport au point.
+                    # bgcolor, bordercolor et borderwidth améliorent la lisibilité de l'annotation.
+
+                if second_best is not None:
+                    idx_second = _find_best_index(filenames, str(second_best["filepath"]))
+                    # Tente de retrouver le point UMAP correspondant au deuxième meilleur résultat.
+
+                    if idx_second is not None:
+                        x_second = latent_2d[idx_second, 0]
+                        y_second = latent_2d[idx_second, 1]
+                        second_filename = Path(str(second_best["filepath"])).name
+                        second_artist, second_title = _extract_artist_and_title(second_best["filepath"])
+
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[x_second],
+                                y=[y_second],
+                                mode="markers+text",
+                                name="Top-2 sélectionné",
+                                text=[second_best["style"]],
+                                textposition="bottom center",
+                                marker=dict(
+                                    size=16,
+                                    symbol="diamond-open",
+                                    line=dict(width=3, color="#b54708"),
+                                ),
+                                hovertemplate=(
+                                    "<b>Top-2 sélectionné</b><br>"
+                                    f"Style: {second_best['style']}<br>"
+                                    f"Artiste: {second_artist}<br>"
+                                    f"Tableau: {second_title}<br>"
+                                    f"Fichier: {second_filename}<br>"
+                                    f"Similarité: {float(second_best['similarity']) * 100:.1f}%"
+                                    "<extra></extra>"
+                                ),
+                                showlegend=False,
+                            )
+                        )
+
+                        fig.add_annotation(
+                            x=x_second,
+                            y=y_second,
+                            text="Top 2",
+                            showarrow=True,
+                            arrowhead=2,
+                            ax=-24,
+                            ay=34,
+                            bgcolor="#fff7ed",
+                            bordercolor="#b54708",
+                            borderwidth=1,
+                        )
+                        # Ajoute un second repère, visuellement distinct du top-1.
+
+                if third_best is not None:
+                    idx_third = _find_best_index(filenames, str(third_best["filepath"]))
+                    # Tente de retrouver le point UMAP correspondant au troisième meilleur résultat.
+
+                    if idx_third is not None:
+                        x_third = latent_2d[idx_third, 0]
+                        y_third = latent_2d[idx_third, 1]
+                        third_filename = Path(str(third_best["filepath"])).name
+                        third_artist, third_title = _extract_artist_and_title(third_best["filepath"])
+
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[x_third],
+                                y=[y_third],
+                                mode="markers+text",
+                                name="Top-3 sélectionné",
+                                text=[third_best["style"]],
+                                textposition="middle right",
+                                marker=dict(
+                                    size=15,
+                                    symbol="square-open",
+                                    line=dict(width=3, color="#175cd3"),
+                                ),
+                                hovertemplate=(
+                                    "<b>Top-3 sélectionné</b><br>"
+                                    f"Style: {third_best['style']}<br>"
+                                    f"Artiste: {third_artist}<br>"
+                                    f"Tableau: {third_title}<br>"
+                                    f"Fichier: {third_filename}<br>"
+                                    f"Similarité: {float(third_best['similarity']) * 100:.1f}%"
+                                    "<extra></extra>"
+                                ),
+                                showlegend=False,
+                            )
+                        )
+
+                        fig.add_annotation(
+                            x=x_third,
+                            y=y_third,
+                            text="Top 3",
+                            showarrow=True,
+                            arrowhead=2,
+                            ax=34,
+                            ay=18,
+                            bgcolor="#eff8ff",
+                            bordercolor="#175cd3",
+                            borderwidth=1,
+                        )
+                        # Ajoute un troisième repère distinct pour le top-3.
+
+                fig.update_layout(
+                    xaxis_title="Dimension UMAP 1",
+                    yaxis_title="Dimension UMAP 2",
+                    legend_title="Styles",
+                    height=700,
+                    hoverlabel=dict(
+                        font=dict(size=16),
+                    ),
+                )
+                # Personnalise la mise en page du graphique :
+                # titres d'axes, titre de légende et hauteur globale du composant.
+
+                st.plotly_chart(fig, width="stretch")
+                # Affiche le graphique interactif dans Streamlit.
+                # width="stretch" permet au graphique d'occuper toute la largeur disponible.
+
+                st.caption(
+                    "Chaque point représente une œuvre projetée dans un espace latent 2D. "
+                    "Les couleurs correspondent aux styles artistiques. "
+                    "Les points annotés correspondent au tableau uploadé ainsi qu'aux meilleurs résultats top-1, top-2 et top-3."
+                )
+                # Ajoute une légende explicative sous le graphique pour aider l'utilisateur
+                # à interpréter la visualisation.
+
+                st.caption(
+                    "Note : la proximité visuelle dans l'UMAP ne correspond pas toujours exactement "
+                    "au classement de similarité, car la projection 2D déforme partiellement "
+                    "les distances calculées dans l'espace latent d'origine."
+                )
+
+    # -------------------------------------------------------------------------
     # Explication visuelle avec Grad-CAM++
     # -------------------------------------------------------------------------
-    if show_gradcam and gradcam_layer_name is not None:
+    if show_gradcam_history and available_layers:
         # Ce bloc n'est exécuté que si l'utilisateur a coché la case correspondante.
         # On garde ce calcul optionnel car Grad-CAM++ peut être plus lent
         # que la simple recherche des voisins les plus proches.
 
-        st.subheader("Explication visuelle (Grad-CAM++)")
-        # Titre de la section d'explicabilité.
-
         try:
+            history_layer_numbers = [10, 20, 50, 70, 100, 120, 150, 200, 240, 245]
+
+            history_layers, missing_history_layers = _select_explanation_layers(
+                available_layers,
+                history_layer_numbers,
+            )
+            _, layer_labels = _format_explanation_layer_options(available_layers)
+
+            if not history_layers:
+                st.warning("Aucune des couches de l'historique n'est disponible pour ce modèle.")
+                st.stop()
+
             with st.spinner("Calcul des cartes Grad-CAM++..."):
-                explanation = retriever.explain_similarity(
-                    query_path,
-                    best["filepath"],
-                    target_layer_name=gradcam_layer_name,
-                )
-                # Demande au moteur de calculer une explication visuelle entre :
-                # - l'image requête
-                # - l'image du meilleur résultat
-                # On suppose que la méthode renvoie un dictionnaire contenant
-                # au moins les overlays et des métadonnées comme la couche cible.
+                history_explanations = []
+                history_total = len(history_layers)
+                history_progress_text = st.empty()
+                history_progress_bar = st.progress(0)
 
-            c1, c2 = st.columns(2)
-            # Crée deux colonnes pour afficher côte à côte les deux cartes Grad-CAM++.
-            # Cette disposition visuelle rend la comparaison immédiate :
-            # l'utilisateur peut observer simultanément les zones importantes
-            # dans l'image requête et dans l'image candidate.
+                for history_index, (layer_number, layer_name) in enumerate(history_layers, start=1):
+                    history_progress_text.caption(
+                        f"Chargement de Grad-CAM history : {history_index}/{history_total} "
+                        f"(couche {layer_number})"
+                    )
+                    history_explanations.append(
+                        (
+                            layer_number,
+                            retriever.explain_similarity(
+                                query_path,
+                                best["filepath"],
+                                target_layer_name=layer_name,
+                            ),
+                        )
+                    )
+                    history_progress_bar.progress(history_index / history_total)
 
-            with c1:
-                st.image(
-                    explanation["query_overlay"],
-                    caption=f"Requête ({explanation['method']}, couche: {explanation['target_layer']})",
-                    width="stretch",
-                )
-                # Affiche l'overlay Grad-CAM++ de l'image requête.
-                # Le caption précise la couche réseau utilisée pour l'explication.
-
-            with c2:
-                st.image(
-                    explanation["candidate_overlay"],
-                    caption=f"Top-1 match ({best['style']}, {explanation['method']})",
-                    width="stretch",
-                )
-                # Affiche l'overlay Grad-CAM++ de l'image candidate top-1.
+                history_progress_text.empty()
+                history_progress_bar.empty()
+                # Calcule l'historique complet pour les couches demandées.
 
             best_artist, best_title = _extract_artist_and_title(best["filepath"])
             # Extrait l'artiste et le titre du meilleur résultat pour les afficher textuellement.
 
-            st.markdown(
-                f"""
-                **Top-1 sélectionné :**
-                **Artiste :** {best_artist}
-                **Tableau :** {best_title}
-                """
-            )
-            # Affiche des informations textuelles sur le top-1.
-            # À noter : en Markdown classique, des sauts de ligne plus explicites
-            # ou des puces pourraient encore améliorer le rendu.
+            with st.expander("Explication visuelle (Grad-CAM++)", expanded=False):
+                st.markdown(
+                    f"""
+                    **Top-1 sélectionné :**
+                    **Artiste :** {best_artist}
+                    **Tableau :** {best_title}
+                    """
+                )
+                # Affiche des informations textuelles sur le top-1.
+                # À noter : en Markdown classique, des sauts de ligne plus explicites
+                # ou des puces pourraient encore améliorer le rendu.
 
-            st.caption(f"Similarité (cosine): {explanation['similarity']:.3f}")
-            # Petite légende discrète indiquant le score de similarité,
-            # formaté avec 3 décimales.
+                st.markdown("**Grad-CAM history**")
+                st.caption(
+                    f"{len(history_explanations)} paires de cartes affichees pour les couches "
+                    "10, 20, 50, 70, 100, 120, 150, 200, 240, 245."
+                )
+
+                if missing_history_layers:
+                    missing_text = ", ".join(str(layer_number) for layer_number in missing_history_layers)
+                    st.caption(f"Couches d'historique non disponibles pour ce modèle : {missing_text}.")
+
+                for layer_number, explanation in history_explanations:
+                    layer_name = explanation["target_layer"]
+                    layer_label = layer_labels.get(layer_name, layer_name)
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        st.image(
+                            explanation["query_overlay"],
+                            caption=(
+                                f"Upload ({explanation['method']}) • couche {layer_number} • "
+                                f"{layer_label} • `{layer_name}` • similarité {explanation['similarity']:.3f}"
+                            ),
+                            width="stretch",
+                        )
+
+                    with c2:
+                        st.image(
+                            explanation["candidate_overlay"],
+                            caption=(
+                                f"Top-1 ({explanation['method']}) • couche {layer_number} • "
+                                f"{layer_label} • `{layer_name}` • similarité {explanation['similarity']:.3f}"
+                            ),
+                            width="stretch",
+                        )
 
         except Exception as exc:
             st.warning(f"Grad-CAM++ indisponible : {exc}")
@@ -917,216 +1464,6 @@ if uploaded is not None and retriever is not None:
             "contribuent à la similarité du top-1."
         )
         # Si l'option n'est pas activée, on affiche un message informatif pour guider l'utilisateur.
-
-    # -------------------------------------------------------------------------
-    # Visualisation UMAP
-    # -------------------------------------------------------------------------
-    if latent_error is not None:
-        st.warning(f"Visualisation UMAP indisponible : {latent_error}")
-        # Si le chargement UMAP a échoué plus tôt, on affiche l'erreur ici.
-
-    elif latent_bundle is not None:
-        st.subheader("Espace latent (UMAP interactif)")
-        # Si les données sont disponibles, on affiche la section UMAP.
-
-        latent_2d, labels, classnames, filenames = latent_bundle
-        # Décompacte les 4 éléments retournés par load_latent_and_meta().
-
-        style_names = _build_style_names(labels, classnames)
-        # Convertit les labels numériques en noms de styles lisibles.
-        # C'est un point pédagogique important :
-        # les modèles et fichiers intermédiaires manipulent volontiers des identifiants numériques,
-        # alors que l'interface doit toujours afficher des informations interprétables humainement.
-
-        short_filenames = [Path(str(fp)).name for fp in filenames]
-        # Crée une version courte des noms de fichiers, sans les chemins,
-        # pour un affichage plus propre dans les tooltips.
-
-        artists = []
-        titles = []
-        # Prépare deux listes qui contiendront artiste et titre pour chaque point UMAP.
-
-        for fp in filenames:
-            artist, title = _extract_artist_and_title(str(fp))
-            # Extrait artiste et titre depuis chaque nom de fichier.
-
-            artists.append(artist)
-            titles.append(title)
-            # Remplit les listes pour les injecter ensuite dans le DataFrame.
-
-        df_umap = pd.DataFrame(
-            {
-                "x": latent_2d[:, 0],
-                # Première coordonnée UMAP de chaque point.
-
-                "y": latent_2d[:, 1],
-                # Deuxième coordonnée UMAP de chaque point.
-
-                "Label": labels,
-                # Label brut de classe.
-
-                "Style": style_names,
-                # Nom lisible du style.
-
-                "Artiste": artists,
-                # Artiste extrait du nom de fichier.
-
-                "Tableau": titles,
-                # Titre de l'œuvre.
-
-                "Fichier": short_filenames,
-                # Nom de fichier court.
-
-                "filepath": [str(fp) for fp in filenames],
-                # Chemin complet, potentiellement utile pour retrouver un point précis.
-            }
-        )
-        # On rassemble ici toutes les données utiles dans un DataFrame unique.
-        # Ce choix simplifie beaucoup la suite, car Plotly Express et les filtres Pandas
-        # travaillent très naturellement avec ce format tabulaire.
-        # En d'autres termes : on convertit des tableaux NumPy "techniques"
-        # en structure "métier / interface" plus facile à manipuler.
-
-        styles_disponibles = sorted(df_umap["Style"].astype(str).unique().tolist())
-        # Récupère la liste unique des styles présents dans le DataFrame,
-        # convertie en chaînes, puis triée alphabétiquement.
-        # Cela sert de base aux filtres interactifs.
-
-        styles_selectionnes = st.multiselect(
-            "Filtrer les styles affichés dans l'UMAP",
-            options=styles_disponibles,
-            default=styles_disponibles,
-        )
-        # Affiche une sélection multiple permettant à l'utilisateur de choisir
-        # quels styles afficher.
-        # Par défaut, tous les styles sont sélectionnés.
-
-        df_umap_filtered = df_umap[df_umap["Style"].isin(styles_selectionnes)].copy()
-        # Filtre les points UMAP selon les styles choisis.
-        # .copy() évite certains avertissements Pandas liés aux vues/slices.
-        # C'est aussi plus sûr si l'on souhaite modifier ensuite le DataFrame filtré
-        # sans impacter accidentellement l'original.
-
-        if df_umap_filtered.empty:
-            st.warning("Aucun point à afficher : aucun style sélectionné.")
-            # Si l'utilisateur désélectionne tout, on l'indique explicitement.
-        else:
-            fig = px.scatter(
-                df_umap_filtered,
-                x="x",
-                y="y",
-                color="Style",
-                hover_data={
-                    "x": False,
-                    "y": False,
-                    "Label": False,
-                    "Style": True,
-                    "Artiste": True,
-                    "Tableau": True,
-                    "Fichier": False,
-                    "filepath": False,
-                },
-                opacity=0.45,
-                title="Projection UMAP des embeddings",
-            )
-            # Crée un nuage de points interactif Plotly.
-            # color="Style" colore les points par style.
-            # hover_data permet de choisir précisément quelles colonnes apparaissent au survol.
-            # x, y, Label, filepath, etc. peuvent être masqués pour garder un tooltip lisible.
-            # opacity=0.45 rend les points semi-transparents, utile quand ils se chevauchent.
-            # Plotly Express est très pratique ici parce qu'il permet de produire
-            # rapidement une visualisation riche à partir d'un DataFrame et de quelques arguments.
-
-            fig.update_traces(marker=dict(size=7))
-            # Réduit / fixe la taille des marqueurs pour améliorer la lisibilité du nuage.
-
-            idx_best = _find_best_index(filenames, str(best["filepath"]))
-            # Tente de retrouver le point UMAP correspondant au meilleur résultat top-1.
-
-            if idx_best is not None:
-                x_best = latent_2d[idx_best, 0]
-                # Coordonnée x du meilleur point.
-
-                y_best = latent_2d[idx_best, 1]
-                # Coordonnée y du meilleur point.
-
-                best_filename = Path(str(best["filepath"])).name
-                # Nom de fichier du meilleur résultat, sans son chemin.
-
-                best_artist, best_title = _extract_artist_and_title(best["filepath"])
-                # Extrait artiste et titre pour enrichir le tooltip du point mis en évidence.
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=[x_best],
-                        y=[y_best],
-                        mode="markers+text",
-                        name="Top-1 sélectionné",
-                        text=[best["style"]],
-                        textposition="top center",
-                        marker=dict(
-                            size=18,
-                            symbol="circle-open",
-                            line=dict(width=3, color="black"),
-                        ),
-                        hovertemplate=(
-                            "<b>Top-1 sélectionné</b><br>"
-                            f"Style: {best['style']}<br>"
-                            f"Artiste: {best_artist}<br>"
-                            f"Tableau: {best_title}<br>"
-                            f"Fichier: {best_filename}<br>"
-                            f"Similarité: {best['similarity']:.3f}"
-                            "<extra></extra>"
-                        ),
-                        showlegend=True,
-                    )
-                )
-                # Ajoute une nouvelle trace Plotly pour surligner visuellement le top-1.
-                # mode="markers+text" affiche à la fois un point et un texte.
-                # symbol="circle-open" dessine un cercle vide autour du point.
-                # line=dict(...) définit le contour noir épais.
-                # hovertemplate personnalise complètement le contenu du tooltip.
-                # <extra></extra> supprime le petit encart supplémentaire Plotly souvent peu utile.
-                # On passe ici de Plotly Express (très pratique pour la base du graphique)
-                # à Plotly Graph Objects (plus bas niveau) afin d'ajouter une surcouche
-                # vraiment sur mesure.
-
-                fig.add_annotation(
-                    x=x_best,
-                    y=y_best,
-                    text=f"Top-1 : {best['style']}",
-                    showarrow=True,
-                    arrowhead=2,
-                    ax=20,
-                    ay=-30,
-                    bgcolor="white",
-                    bordercolor="black",
-                    borderwidth=1,
-                )
-                # Ajoute une annotation textuelle avec flèche pointant vers le meilleur résultat.
-                # ax et ay contrôlent le décalage de l'étiquette par rapport au point.
-                # bgcolor, bordercolor et borderwidth améliorent la lisibilité de l'annotation.
-
-            fig.update_layout(
-                xaxis_title="Dimension UMAP 1",
-                yaxis_title="Dimension UMAP 2",
-                legend_title="Styles",
-                height=700,
-            )
-            # Personnalise la mise en page du graphique :
-            # titres d'axes, titre de légende et hauteur globale du composant.
-
-            st.plotly_chart(fig, width="stretch")
-            # Affiche le graphique interactif dans Streamlit.
-            # width="stretch" permet au graphique d'occuper toute la largeur disponible.
-
-            st.caption(
-                "Chaque point représente une œuvre projetée dans un espace latent 2D. "
-                "Les couleurs correspondent aux styles artistiques. "
-                "Le point entouré correspond au meilleur résultat (top-1)."
-            )
-            # Ajoute une légende explicative sous le graphique pour aider l'utilisateur
-            # à interpréter la visualisation.
 
 elif uploaded is None:
     if upload_disabled:

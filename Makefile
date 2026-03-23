@@ -17,6 +17,7 @@ help:
 	@echo "  make train      - entraine l'encodeur"
 	@echo "  make embeddings - calcule les embeddings"
 	@echo "  make umap       - calcule la projection UMAP"
+	@echo "  make get_model  - telecharge et decompresse embeddings et models"
 	@echo "  make run        - lance l'application Streamlit"
 	@echo "  make get_model  - telecharge les models et embeddings pre-entraines"
 	@echo "  make all        - enchaine dataset, train, embeddings et umap"
@@ -57,6 +58,14 @@ embeddings:
 
 umap:
 	@cd "$(PROJECT_DIR)" && python -m src.visualization_umap
+
+get_model:
+	@cd "$(PROJECT_DIR)" && wget https://art-xplain.s3.eu-west-3.amazonaws.com/embeddings.zip
+	@cd "$(PROJECT_DIR)" && unzip embeddings.zip
+	@cd "$(PROJECT_DIR)" && rm embeddings.zip
+	@cd "$(PROJECT_DIR)" && wget https://art-xplain.s3.eu-west-3.amazonaws.com/models.zip
+	@cd "$(PROJECT_DIR)" && unzip models.zip
+	@cd "$(PROJECT_DIR)" && rm models.zip
 
 run:
 	@cd "$(PROJECT_DIR)" && streamlit run src/app_streamlit.py
