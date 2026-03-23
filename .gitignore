@@ -10,3 +10,4 @@ raw_data/
 .python-version
 art-xplain/data/
 art-xplain/embeddings/
+art-xplain/models/
