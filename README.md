@@ -3,10 +3,10 @@
 
 
 ---
-_version 0.03.22.0102_
-- **Emmanuelle** - _manievfoulards@gmail.com_
-- **Lucile** - _lucilejosse.mail@gmail.com_
-- **Lionel** - _lion94.home@gmail.com_
+_version 0.03.23.0102_
+- **Emmanuelle**
+- **Lucile**
+- **Lionel**
 
 Art-Xplain est un projet Python/TensorFlow qui apprend un encodeur visuel pour comparer des œuvres d'art par similarité de style.
 
