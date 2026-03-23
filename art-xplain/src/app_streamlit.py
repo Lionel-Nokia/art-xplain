@@ -274,6 +274,26 @@ def _format_explanation_layer_options(layer_names: list[str]) -> tuple[list[str]
     return layer_names, labels_by_name
 
 
+def _select_explanation_layers(layer_names: list[str], layer_numbers: list[int]) -> tuple[list[tuple[int, str]], list[int]]:
+    """
+    Selectionne des couches Grad-CAM++ par position humaine (1-based).
+    """
+    if not layer_names:
+        return [], layer_numbers
+
+    selected_layers: list[tuple[int, str]] = []
+    missing_layers: list[int] = []
+
+    for layer_number in layer_numbers:
+        idx = layer_number - 1
+        if 0 <= idx < len(layer_names):
+            selected_layers.append((layer_number, layer_names[idx]))
+        else:
+            missing_layers.append(layer_number)
+
+    return selected_layers, missing_layers
+
+
 # =============================================================================
 # CHARGEMENT DES DONNÉES LATENTES (UMAP + MÉTADONNÉES)
 # =============================================================================
@@ -635,20 +655,17 @@ show_gradcam = st.checkbox(
 # value=False signifie qu'elle est décochée par défaut.
 # Cette option déclenche potentiellement un calcul coûteux, d'où son caractère optionnel.
 
-gradcam_layer_name = None
+show_gradcam_history = False
+if show_gradcam:
+    show_gradcam_history = st.checkbox(
+        "Grad-CAM history",
+        value=False,
+    )
+
+available_layers: list[str] = []
 if show_gradcam and retriever is not None:
     available_layers = retriever.available_explanation_layers()
-    if available_layers:
-        layer_options, layer_labels = _format_explanation_layer_options(available_layers)
-        gradcam_layer_name = st.selectbox(
-            "Couche Grad-CAM++",
-            options=layer_options,
-            index=len(layer_options) - 1,
-            format_func=lambda name: layer_labels.get(name, name),
-            help="Choisis une couche precoce, intermediaire ou profonde pour generer la carte d'attention.",
-        )
-        st.caption(f"Couche technique utilisee : `{gradcam_layer_name}`")
-    else:
+    if not available_layers:
         st.warning("Aucune couche compatible n'a été trouvée pour Grad-CAM++.")
 
 
@@ -845,83 +862,6 @@ if uploaded is not None and retriever is not None:
     # Affiche le DataFrame dans Streamlit.
     # width="stretch" utilise toute la largeur disponible.
     # hide_index=True masque l'index par défaut de Pandas, peu utile ici.
-
-    # -------------------------------------------------------------------------
-    # Explication visuelle avec Grad-CAM++
-    # -------------------------------------------------------------------------
-    if show_gradcam and gradcam_layer_name is not None:
-        # Ce bloc n'est exécuté que si l'utilisateur a coché la case correspondante.
-        # On garde ce calcul optionnel car Grad-CAM++ peut être plus lent
-        # que la simple recherche des voisins les plus proches.
-
-        st.subheader("Explication visuelle (Grad-CAM++)")
-        # Titre de la section d'explicabilité.
-
-        try:
-            with st.spinner("Calcul des cartes Grad-CAM++..."):
-                explanation = retriever.explain_similarity(
-                    query_path,
-                    best["filepath"],
-                    target_layer_name=gradcam_layer_name,
-                )
-                # Demande au moteur de calculer une explication visuelle entre :
-                # - l'image requête
-                # - l'image du meilleur résultat
-                # On suppose que la méthode renvoie un dictionnaire contenant
-                # au moins les overlays et des métadonnées comme la couche cible.
-
-            c1, c2 = st.columns(2)
-            # Crée deux colonnes pour afficher côte à côte les deux cartes Grad-CAM++.
-            # Cette disposition visuelle rend la comparaison immédiate :
-            # l'utilisateur peut observer simultanément les zones importantes
-            # dans l'image requête et dans l'image candidate.
-
-            with c1:
-                st.image(
-                    explanation["query_overlay"],
-                    caption=f"Requête ({explanation['method']}, couche: {explanation['target_layer']})",
-                    width="stretch",
-                )
-                # Affiche l'overlay Grad-CAM++ de l'image requête.
-                # Le caption précise la couche réseau utilisée pour l'explication.
-
-            with c2:
-                st.image(
-                    explanation["candidate_overlay"],
-                    caption=f"Top-1 match ({best['style']}, {explanation['method']})",
-                    width="stretch",
-                )
-                # Affiche l'overlay Grad-CAM++ de l'image candidate top-1.
-
-            best_artist, best_title = _extract_artist_and_title(best["filepath"])
-            # Extrait l'artiste et le titre du meilleur résultat pour les afficher textuellement.
-
-            st.markdown(
-                f"""
-                **Top-1 sélectionné :**
-                **Artiste :** {best_artist}
-                **Tableau :** {best_title}
-                """
-            )
-            # Affiche des informations textuelles sur le top-1.
-            # À noter : en Markdown classique, des sauts de ligne plus explicites
-            # ou des puces pourraient encore améliorer le rendu.
-
-            st.caption(f"Similarité (cosine): {explanation['similarity']:.3f}")
-            # Petite légende discrète indiquant le score de similarité,
-            # formaté avec 3 décimales.
-
-        except Exception as exc:
-            st.warning(f"Grad-CAM++ indisponible : {exc}")
-            # Si le calcul Grad-CAM++ échoue, on n'interrompt pas toute l'application.
-            # On affiche simplement un avertissement explicatif.
-
-    else:
-        st.info(
-            "Active l'option Grad-CAM++ pour visualiser les zones qui "
-            "contribuent à la similarité du top-1."
-        )
-        # Si l'option n'est pas activée, on affiche un message informatif pour guider l'utilisateur.
 
     # -------------------------------------------------------------------------
     # Visualisation UMAP
@@ -1332,6 +1272,158 @@ if uploaded is not None and retriever is not None:
                 "au classement de similarité, car la projection 2D déforme partiellement "
                 "les distances calculées dans l'espace latent d'origine."
             )
+
+    # -------------------------------------------------------------------------
+    # Explication visuelle avec Grad-CAM++
+    # -------------------------------------------------------------------------
+    if show_gradcam and available_layers:
+        # Ce bloc n'est exécuté que si l'utilisateur a coché la case correspondante.
+        # On garde ce calcul optionnel car Grad-CAM++ peut être plus lent
+        # que la simple recherche des voisins les plus proches.
+
+        st.subheader("Explication visuelle (Grad-CAM++)")
+        # Titre de la section d'explicabilité.
+
+        try:
+            primary_layer_numbers = [245]
+            history_layer_numbers = [10, 20, 50, 70, 100, 120, 150, 200, 240, 245]
+
+            primary_layers, missing_primary_layers = _select_explanation_layers(
+                available_layers,
+                primary_layer_numbers,
+            )
+            history_layers, missing_history_layers = _select_explanation_layers(
+                available_layers,
+                history_layer_numbers,
+            )
+            _, layer_labels = _format_explanation_layer_options(available_layers)
+
+            if not primary_layers:
+                st.warning("La couche 245 n'est pas disponible pour ce modèle.")
+                st.stop()
+
+            with st.spinner("Calcul des cartes Grad-CAM++..."):
+                primary_explanations = [
+                    (
+                        layer_number,
+                        retriever.explain_similarity(
+                            query_path,
+                            best["filepath"],
+                            target_layer_name=layer_name,
+                        ),
+                    )
+                    for layer_number, layer_name in primary_layers
+                ]
+                # Calcule l'explication principale pour la couche 245.
+
+                history_explanations = []
+                if show_gradcam_history:
+                    history_explanations = [
+                        (
+                            layer_number,
+                            retriever.explain_similarity(
+                                query_path,
+                                best["filepath"],
+                                target_layer_name=layer_name,
+                            ),
+                        )
+                        for layer_number, layer_name in history_layers
+                    ]
+                    # Calcule l'historique complet uniquement si l'utilisateur le demande.
+
+            best_artist, best_title = _extract_artist_and_title(best["filepath"])
+            # Extrait l'artiste et le titre du meilleur résultat pour les afficher textuellement.
+
+            st.markdown(
+                f"""
+                **Top-1 sélectionné :**
+                **Artiste :** {best_artist}
+                **Tableau :** {best_title}
+                """
+            )
+            # Affiche des informations textuelles sur le top-1.
+            # À noter : en Markdown classique, des sauts de ligne plus explicites
+            # ou des puces pourraient encore améliorer le rendu.
+
+            st.caption("Affichage principal : image uploadée vs top-1 à la couche 245.")
+
+            if missing_primary_layers:
+                missing_text = ", ".join(str(layer_number) for layer_number in missing_primary_layers)
+                st.caption(f"Couches principales non disponibles : {missing_text}.")
+
+            for layer_number, explanation in primary_explanations:
+                layer_name = explanation["target_layer"]
+                layer_label = layer_labels.get(layer_name, layer_name)
+                c1, c2 = st.columns(2)
+
+                with c1:
+                    st.image(
+                        explanation["query_overlay"],
+                        caption=(
+                            f"Upload ({explanation['method']}) • couche {layer_number} • "
+                            f"{layer_label} • `{layer_name}` • similarité {explanation['similarity']:.3f}"
+                        ),
+                        width="stretch",
+                    )
+
+                with c2:
+                    st.image(
+                        explanation["candidate_overlay"],
+                        caption=(
+                            f"Top-1 ({explanation['method']}) • couche {layer_number} • "
+                            f"{layer_label} • `{layer_name}` • similarité {explanation['similarity']:.3f}"
+                        ),
+                        width="stretch",
+                    )
+                # Affiche côte à côte la requête et le top-1 pour chaque couche demandee.
+
+            if show_gradcam_history:
+                st.markdown("**Grad-CAM history**")
+                st.caption(
+                    f"{len(history_explanations)} paires de cartes affichees pour les couches "
+                    "10, 20, 50, 70, 100, 120, 150, 200, 240, 245."
+                )
+
+                if missing_history_layers:
+                    missing_text = ", ".join(str(layer_number) for layer_number in missing_history_layers)
+                    st.caption(f"Couches d'historique non disponibles pour ce modèle : {missing_text}.")
+
+                for layer_number, explanation in history_explanations:
+                    layer_name = explanation["target_layer"]
+                    layer_label = layer_labels.get(layer_name, layer_name)
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        st.image(
+                            explanation["query_overlay"],
+                            caption=(
+                                f"Upload ({explanation['method']}) • couche {layer_number} • "
+                                f"{layer_label} • `{layer_name}` • similarité {explanation['similarity']:.3f}"
+                            ),
+                            width="stretch",
+                        )
+
+                    with c2:
+                        st.image(
+                            explanation["candidate_overlay"],
+                            caption=(
+                                f"Top-1 ({explanation['method']}) • couche {layer_number} • "
+                                f"{layer_label} • `{layer_name}` • similarité {explanation['similarity']:.3f}"
+                            ),
+                            width="stretch",
+                        )
+
+        except Exception as exc:
+            st.warning(f"Grad-CAM++ indisponible : {exc}")
+            # Si le calcul Grad-CAM++ échoue, on n'interrompt pas toute l'application.
+            # On affiche simplement un avertissement explicatif.
+
+    else:
+        st.info(
+            "Active l'option Grad-CAM++ pour visualiser les zones qui "
+            "contribuent à la similarité du top-1."
+        )
+        # Si l'option n'est pas activée, on affiche un message informatif pour guider l'utilisateur.
 
 elif uploaded is None:
     if upload_disabled:
