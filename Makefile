@@ -7,7 +7,7 @@ ENV_NAME := art-xplain
 PROJECT_DIR := art-xplain
 ENV_PYTHON := $(PYENV_ROOT)/versions/$(ENV_NAME)/bin/python
 
-.PHONY: help install cleanall dataset train embeddings umap run all
+.PHONY: help install cleanall dataset train embeddings umap run all get_model
 
 help:
 	@echo "Commandes disponibles :"
@@ -18,6 +18,7 @@ help:
 	@echo "  make embeddings - calcule les embeddings"
 	@echo "  make umap       - calcule la projection UMAP"
 	@echo "  make run        - lance l'application Streamlit"
+	@echo "  make get_model  - telecharge les models et embeddings pre-entraines"
 	@echo "  make all        - enchaine dataset, train, embeddings et umap"
 
 install:
@@ -59,5 +60,13 @@ umap:
 
 run:
 	@cd "$(PROJECT_DIR)" && streamlit run src/app_streamlit.py
+
+get_model:
+	@echo "Telechargement des embeddings et models..."
+	@cd "$(PROJECT_DIR)" && \
+	wget https://art-xplain.s3.eu-west-3.amazonaws.com/embeddings.zip && \
+	unzip embeddings.zip && rm embeddings.zip && \
+	wget https://art-xplain.s3.eu-west-3.amazonaws.com/models.zip && \
+	unzip models.zip && rm models.zip
 
 all: dataset train embeddings umap
