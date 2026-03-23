@@ -9,3 +9,4 @@ raw_data/
 .ipynb
 .python-version
 art-xplain/data/
+art-xplain/embeddings/
