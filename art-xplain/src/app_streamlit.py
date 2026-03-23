@@ -251,6 +251,30 @@ def _extract_artist_and_title(filepath: str) -> tuple[str, str]:
     # Retourne un tuple (artiste, titre).
 
 
+def _format_explanation_layer_options(layer_names: list[str]) -> tuple[list[str], dict[str, str]]:
+    """
+    Construit des libellés lisibles pour les couches Grad-CAM++.
+    """
+    if not layer_names:
+        return [], {}
+
+    total = len(layer_names)
+    labels_by_name: dict[str, str] = {}
+
+    for idx, layer_name in enumerate(layer_names):
+        ratio = idx / max(total - 1, 1)
+        if ratio <= 0.33:
+            family = "Couche precoce"
+        elif ratio <= 0.66:
+            family = "Couche intermediaire"
+        else:
+            family = "Couche profonde"
+
+        labels_by_name[layer_name] = f"{family} {idx + 1}/{total}"
+
+    return layer_names, labels_by_name
+
+
 # =============================================================================
 # CHARGEMENT DES DONNÉES LATENTES (UMAP + MÉTADONNÉES)
 # =============================================================================
@@ -378,11 +402,177 @@ def load_latent_and_meta():
     # Renvoie l'ensemble des données nécessaires à la visualisation interactive.
 
 
+@st.cache_data
+def _inspect_runtime_assets() -> dict[str, object]:
+    """
+    Prépare un résumé lisible de l'état des artefacts utilisés par l'application.
+    """
+    cfg = load_config()
+
+    data_root = resolve_project_path(cfg["paths"]["keras_root"])
+    emb_root = resolve_project_path(cfg["paths"]["embeddings_root"])
+    models_root = resolve_project_path(cfg["paths"]["models_root"])
+
+    def status_row(label: str, ok: bool, detail: str, state: str | None = None) -> dict[str, str]:
+        return {
+            "label": label,
+            "state": state or ("Valide" if ok else "Indisponible"),
+            "tone": "#e8f7ee" if ok else "#fdecec",
+            "accent": "#1f7a45" if ok else "#b42318",
+            "detail": detail,
+        }
+
+    model_path = models_root / "encoder.keras"
+    model_ok = model_path.exists() and model_path.is_file()
+    model_detail = (
+        f"encodeur trouvé: {model_path.name}"
+        if model_ok
+        else f"fichier manquant: {model_path.name}"
+    )
+
+    required_embedding_files = [
+        emb_root / "vectors.npy",
+        emb_root / "labels.npy",
+        emb_root / "filenames.npy",
+        emb_root / "classnames.npy",
+    ]
+    missing_embeddings = [path.name for path in required_embedding_files if not path.exists()]
+
+    expected_splits = ["train", "val", "test"]
+    split_dirs = [data_root / split for split in expected_splits]
+    split_status = [path.exists() and path.is_dir() for path in split_dirs]
+    image_count = sum(len(list(path.rglob("*.jpg"))) for path in split_dirs if path.exists())
+    data_ok = all(split_status) and image_count > 0
+    if data_ok:
+        data_detail = f"{image_count} image(s) détectée(s) dans train/val/test"
+    else:
+        missing_splits = [split for split, ok in zip(expected_splits, split_status) if not ok]
+        if missing_splits:
+            data_detail = f"dossiers manquants: {', '.join(missing_splits)}"
+        else:
+            data_detail = "aucune image .jpg détectée dans data/out"
+
+    missing_embedding_paths_count = 0
+    embeddings_state = "Valide"
+    embeddings_card_ok = not missing_embeddings
+    embeddings_detail = (
+        f"{len(required_embedding_files)} fichiers requis présents"
+        if embeddings_card_ok
+        else f"manquants: {', '.join(missing_embeddings)}"
+    )
+
+    filenames_path = emb_root / "filenames.npy"
+    if embeddings_card_ok and data_ok and filenames_path.exists():
+        stored_filenames = np.load(filenames_path, allow_pickle=True)
+        missing_embedding_paths_count = 0
+        for fp in stored_filenames:
+            resolved = resolve_stored_path(fp)
+            if not resolved.exists():
+                missing_embedding_paths_count += 1
+
+        if missing_embedding_paths_count > 0:
+            embeddings_card_ok = False
+            embeddings_state = "Désynchronisé"
+            embeddings_detail = (
+                f"{missing_embedding_paths_count} chemin(s) d'embeddings ne pointent plus "
+                "vers un fichier présent dans data/out"
+            )
+
+    rows = [
+        status_row("Modèle", model_ok, model_detail),
+        status_row("Embeddings", embeddings_card_ok, embeddings_detail, state=embeddings_state),
+        status_row("data/out", data_ok, data_detail),
+    ]
+
+    return {
+        "rows": rows,
+        "upload_enabled": bool(model_ok and data_ok and missing_embedding_paths_count == 0 and not missing_embeddings),
+        "missing_embedding_paths_count": missing_embedding_paths_count,
+    }
+
+
+def render_runtime_status() -> dict[str, object]:
+    """
+    Affiche un panneau déroulant discret pour l'état des ressources du projet.
+    """
+    status = _inspect_runtime_assets()
+    rows = status["rows"]
+
+    has_error = not bool(status["upload_enabled"])
+    button_bg = "#fdecec" if has_error else "#eef6ff"
+    button_fg = "#b42318" if has_error else "#175cd3"
+    button_border = "#f04438" if has_error else "#84caff"
+    button_label = "État des ressources"
+
+    st.markdown(
+        f"""
+        <style>
+        div[data-testid="stExpander"] details {{
+            border: 1px solid {button_border};
+            border-radius: 12px;
+            overflow: hidden;
+        }}
+        div[data-testid="stExpander"] details summary {{
+            background: {button_bg};
+            color: {button_fg};
+            font-weight: 700;
+        }}
+        div[data-testid="stExpander"] details summary:hover {{
+            background: {button_bg};
+            color: {button_fg};
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.expander(button_label, expanded=False):
+        cols = st.columns(len(rows))
+        for col, row in zip(cols, rows):
+            with col:
+                st.markdown(
+                    f"""
+                    <div style="
+                        border-left: 6px solid {row['accent']};
+                        background: {row['tone']};
+                        border-radius: 12px;
+                        padding: 0.85rem 1rem;
+                        min-height: 128px;
+                    ">
+                        <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.35rem;">
+                            {row['label']}
+                        </div>
+                        <div style="font-size: 1.05rem; font-weight: 700; color: {row['accent']}; margin-bottom: 0.35rem;">
+                            {row['state']}
+                        </div>
+                        <div style="font-size: 0.92rem; line-height: 1.35;">
+                            {row['detail']}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+        if status["missing_embedding_paths_count"]:
+            st.warning(
+                "Les embeddings sont désynchronisés avec `data/out`. "
+                "L'upload est bloqué tant que les embeddings n'ont pas été régénérés."
+            )
+
+    return status
+
+
 # =============================================================================
 # INITIALISATION DES RESSOURCES
 # =============================================================================
 
-retriever = get_retriever()
+retriever = None
+retriever_error = None
+
+try:
+    retriever = get_retriever()
+except Exception as exc:
+    retriever_error = exc
 # Instancie (ou récupère depuis le cache) le moteur de recherche.
 # Cette ligne est exécutée lors du rendu du script Streamlit.
 # Dans Streamlit, le script est relancé de haut en bas à chaque interaction utilisateur.
@@ -413,9 +603,17 @@ except Exception as exc:
 # INTERFACE UTILISATEUR - CONTRÔLES D'ENTRÉE
 # =============================================================================
 
+runtime_status = render_runtime_status()
+
+if retriever_error is not None:
+    st.warning(f"Moteur de retrieval indisponible : {retriever_error}")
+
+upload_disabled = (retriever_error is not None) or (not runtime_status["upload_enabled"])
+
 uploaded = st.file_uploader(
     "Upload une image (jpg/png/webp)",
     type=["jpg", "jpeg", "png", "webp"],
+    disabled=upload_disabled,
 )
 # Affiche un composant de téléchargement de fichier.
 # L'utilisateur peut envoyer une image dans l'un des formats autorisés.
@@ -429,19 +627,35 @@ k = 4
 # un slider Streamlit, mais le garder fixe simplifie l'expérience.
 
 show_gradcam = st.checkbox(
-    "Afficher Grad-CAM (top-1)",
+    "Afficher Grad-CAM++ (top-1)",
     value=False,
 )
-# Ajoute une case à cocher pour activer ou non la visualisation Grad-CAM.
+# Ajoute une case à cocher pour activer ou non la visualisation Grad-CAM++.
 # value=False signifie qu'elle est décochée par défaut.
 # Cette option déclenche potentiellement un calcul coûteux, d'où son caractère optionnel.
+
+gradcam_layer_name = None
+if show_gradcam and retriever is not None:
+    available_layers = retriever.available_explanation_layers()
+    if available_layers:
+        layer_options, layer_labels = _format_explanation_layer_options(available_layers)
+        gradcam_layer_name = st.selectbox(
+            "Couche Grad-CAM++",
+            options=layer_options,
+            index=len(layer_options) - 1,
+            format_func=lambda name: layer_labels.get(name, name),
+            help="Choisis une couche precoce, intermediaire ou profonde pour generer la carte d'attention.",
+        )
+        st.caption(f"Couche technique utilisee : `{gradcam_layer_name}`")
+    else:
+        st.warning("Aucune couche compatible n'a été trouvée pour Grad-CAM++.")
 
 
 # =============================================================================
 # TRAITEMENT PRINCIPAL
 # =============================================================================
 
-if uploaded is not None:
+if uploaded is not None and retriever is not None:
     # Toute la logique principale de recherche est exécutée seulement
     # si l'utilisateur a effectivement uploadé une image.
     # Cette condition joue le rôle de "point d'entrée utilisateur" du workflow.
@@ -485,7 +699,7 @@ if uploaded is not None:
 
     best = results[0]
     # Récupère le premier résultat, supposé être le plus pertinent.
-    # On l'utilise ensuite comme top-1 pour le style suggéré, Grad-CAM et le highlight UMAP.
+    # On l'utilise ensuite comme top-1 pour le style suggéré, Grad-CAM++ et le highlight UMAP.
     # Le reste de l'interface s'organise donc autour de ce meilleur voisin :
     # c'est lui qui sert de référence principale pour l'explication visuelle.
 
@@ -628,21 +842,22 @@ if uploaded is not None:
     # hide_index=True masque l'index par défaut de Pandas, peu utile ici.
 
     # -------------------------------------------------------------------------
-    # Explication visuelle avec Grad-CAM
+    # Explication visuelle avec Grad-CAM++
     # -------------------------------------------------------------------------
-    if show_gradcam:
+    if show_gradcam and gradcam_layer_name is not None:
         # Ce bloc n'est exécuté que si l'utilisateur a coché la case correspondante.
-        # On garde ce calcul optionnel car Grad-CAM peut être plus lent
+        # On garde ce calcul optionnel car Grad-CAM++ peut être plus lent
         # que la simple recherche des voisins les plus proches.
 
-        st.subheader("Explication visuelle (Grad-CAM similarity)")
+        st.subheader("Explication visuelle (Grad-CAM++)")
         # Titre de la section d'explicabilité.
 
         try:
-            with st.spinner("Calcul des cartes Grad-CAM..."):
+            with st.spinner("Calcul des cartes Grad-CAM++..."):
                 explanation = retriever.explain_similarity(
                     query_path,
                     best["filepath"],
+                    target_layer_name=gradcam_layer_name,
                 )
                 # Demande au moteur de calculer une explication visuelle entre :
                 # - l'image requête
@@ -651,7 +866,7 @@ if uploaded is not None:
                 # au moins les overlays et des métadonnées comme la couche cible.
 
             c1, c2 = st.columns(2)
-            # Crée deux colonnes pour afficher côte à côte les deux cartes Grad-CAM.
+            # Crée deux colonnes pour afficher côte à côte les deux cartes Grad-CAM++.
             # Cette disposition visuelle rend la comparaison immédiate :
             # l'utilisateur peut observer simultanément les zones importantes
             # dans l'image requête et dans l'image candidate.
@@ -659,19 +874,19 @@ if uploaded is not None:
             with c1:
                 st.image(
                     explanation["query_overlay"],
-                    caption=f"Requête (couche: {explanation['target_layer']})",
+                    caption=f"Requête ({explanation['method']}, couche: {explanation['target_layer']})",
                     width="stretch",
                 )
-                # Affiche l'overlay Grad-CAM de l'image requête.
+                # Affiche l'overlay Grad-CAM++ de l'image requête.
                 # Le caption précise la couche réseau utilisée pour l'explication.
 
             with c2:
                 st.image(
                     explanation["candidate_overlay"],
-                    caption=f"Top-1 match ({best['style']})",
+                    caption=f"Top-1 match ({best['style']}, {explanation['method']})",
                     width="stretch",
                 )
-                # Affiche l'overlay Grad-CAM de l'image candidate top-1.
+                # Affiche l'overlay Grad-CAM++ de l'image candidate top-1.
 
             best_artist, best_title = _extract_artist_and_title(best["filepath"])
             # Extrait l'artiste et le titre du meilleur résultat pour les afficher textuellement.
@@ -692,13 +907,13 @@ if uploaded is not None:
             # formaté avec 3 décimales.
 
         except Exception as exc:
-            st.warning(f"Grad-CAM indisponible : {exc}")
-            # Si le calcul Grad-CAM échoue, on n'interrompt pas toute l'application.
+            st.warning(f"Grad-CAM++ indisponible : {exc}")
+            # Si le calcul Grad-CAM++ échoue, on n'interrompt pas toute l'application.
             # On affiche simplement un avertissement explicatif.
 
     else:
         st.info(
-            "Active l'option Grad-CAM pour visualiser les zones qui "
+            "Active l'option Grad-CAM++ pour visualiser les zones qui "
             "contribuent à la similarité du top-1."
         )
         # Si l'option n'est pas activée, on affiche un message informatif pour guider l'utilisateur.
@@ -913,10 +1128,15 @@ if uploaded is not None:
             # Ajoute une légende explicative sous le graphique pour aider l'utilisateur
             # à interpréter la visualisation.
 
-else:
-    st.info("Charge une image pour lancer la recherche.")
+elif uploaded is None:
+    if upload_disabled:
+        st.info("Upload désactivé tant que le modèle, les embeddings et `data/out` ne sont pas synchronisés.")
+    else:
+        st.info("Charge une image pour lancer la recherche.")
     # Cas initial : aucun fichier n'a encore été uploadé.
     # On affiche simplement une consigne à l'utilisateur.
     # Ce `else` correspond à l'état d'accueil de l'application :
     # l'interface est chargée, les ressources sont prêtes, mais aucun workflow
     # de recherche n'a encore été déclenché.
+else:
+    st.error("Le moteur n'est pas prêt. Vérifie le modèle, les embeddings et data/out.")

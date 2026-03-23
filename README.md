@@ -3,10 +3,10 @@
 
 
 ---
-_v 0.03.20.2345_
-- **Emmanuelle** - _manievfoulards@gmail.com_
-- **Lucile** - _lucilejosse.mail@gmail.com_
-- **Lionel** - _lion94.home@gmail.com_
+_version 0.03.23.0102_
+- **Emmanuelle**
+- **Lucile**
+- **Lionel**
 
 Art-Xplain est un projet Python/TensorFlow qui apprend un encodeur visuel pour comparer des œuvres d'art par similarité de style.
 
@@ -159,6 +159,9 @@ Les fonctions `detect_images_root_from_filenames`, `infer_label_from_filename_pa
 - `materialize_split`:
   copie les images dans la structure finale `train/val/test/<style>/...` en résolvant les chemins sources et en comptant les fichiers copiés/manquants.
 
+- `dataset.keep_styles` dans `config/config.yaml`:
+  permet d'imposer une liste manuelle de styles à conserver. Si cette liste est renseignée, elle prend la priorité sur `dataset.keep_top_styles`.
+
 ## 6) Build model notebook
 
 Notebook:
@@ -168,6 +171,7 @@ Résumé des cellules (étapes):
 - Cellule 1-2: imports, détection de la racine projet.
 - Cellule 3: chargement de la config et des chemins utiles.
 - Cellule 4: vérification des dossiers `train` et `val`.
+- La config `model.backbone` peut maintenant cibler `EfficientNetV2-S` ou `EfficientNetV2-M` selon le compromis vitesse/capacité souhaité.
 - Cellule 5: lecture des hyperparamètres du modèle et d'entraînement.
 - Cellule 6: création des datasets TensorFlow.
 - Cellule 7: construction de l'encodeur (backbone + embedding).

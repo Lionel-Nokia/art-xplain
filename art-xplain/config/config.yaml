@@ -10,11 +10,19 @@ paths:
   # Where embeddings will be stored (npy files)
   embeddings_root: "embeddings"
   # Where models will be stored
-  models_root: "models"
+  models_root: "models/model_EfficientNetV2-M/accuracy-0.8313-loss-0.5239"
 dataset:
-  max_images: 6500
-  # Keep only the top N styles (recommended 5-10 for a student project)
+  max_images: 5500
+  # Keep only the top N styles (used only if keep_styles is empty)
   keep_top_styles: 5
+  # Optional manual list of styles to keep. When provided, this takes priority
+  # over keep_top_styles.
+  # Example:
+  # keep_styles:
+  #   - Impressionism
+  #   - Expressionism
+  #   - Realism
+  keep_styles: []
   # Minimum images required to keep a style
   min_images_per_style: 300
   # Splits utilisés pour construire la galerie d'embeddings.
@@ -27,7 +35,9 @@ dataset:
 model:
   img_size: 224
   embed_dim: 256
-  backbone: "EfficientNetV2B0"
+  # Supported values: EfficientNetV2-S, EfficientNetV2-M
+  # Legacy value still accepted: EfficientNetV2B0
+  backbone: "EfficientNetV2-M"
   freeze_backbone: true
 train:
   batch_size: 32
