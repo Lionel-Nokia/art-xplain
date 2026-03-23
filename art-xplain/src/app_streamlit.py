@@ -299,6 +299,22 @@ def _select_explanation_layers(layer_names: list[str], layer_numbers: list[int])
 # =============================================================================
 
 @st.cache_data
+def _load_umap_bundle(bundle_path: str) -> dict[str, np.ndarray]:
+    """
+    Charge le bundle UMAP compressé et retourne ses tableaux.
+    """
+    with np.load(bundle_path, allow_pickle=True) as data:
+        return {key: data[key] for key in data.files}
+
+
+@st.cache_data
+def _load_numpy_array(path: str, allow_pickle: bool = False) -> np.ndarray:
+    """
+    Charge un tableau NumPy depuis le disque avec mise en cache Streamlit.
+    """
+    return np.load(path, allow_pickle=allow_pickle)
+
+
 def load_latent_and_meta():
     """
     Charge les données nécessaires à la visualisation UMAP interactive.
@@ -323,102 +339,125 @@ def load_latent_and_meta():
     # Récupère le dossier racine où sont stockés les embeddings et métadonnées.
     # On convertit ce chemin en Path pour manipulations propres ensuite.
 
+    progress_text = st.empty()
+    progress_bar = st.progress(0)
+
+    def update_progress(step: int, total: int, message: str) -> None:
+        progress_text.caption(f"Chargement des espaces latents : {message}")
+        progress_bar.progress(step / total)
+
     bundle_path = emb_root / "umap_bundle.npz"
     # Construit le chemin vers un fichier compressé .npz contenant potentiellement
     # toutes les données nécessaires à l'affichage UMAP dans un seul bundle.
 
-    if bundle_path.exists():
-        data = np.load(bundle_path, allow_pickle=True)
+    try:
+        if bundle_path.exists():
+            update_progress(1, 5, "ouverture du bundle UMAP")
+            data = _load_umap_bundle(str(bundle_path))
         # Si le bundle existe, on le charge.
         # np.load(..., allow_pickle=True) permet de lire des objets Python sérialisés,
         # ce qui peut être nécessaire pour classnames ou filenames.
 
-        required_keys = {"latent_2d", "labels", "classnames", "filenames"}
+            required_keys = {"latent_2d", "labels", "classnames", "filenames"}
         # Ensemble des clés indispensables pour que l'UMAP fonctionne correctement.
 
-        missing = required_keys.difference(set(data.files))
+            update_progress(2, 5, "vérification du contenu du bundle")
+            missing = required_keys.difference(set(data.keys()))
         # data.files contient les clés présentes dans le fichier .npz.
         # On calcule celles qui manquent.
 
-        if missing:
-            raise ValueError(
-                f"Le bundle UMAP est incomplet. Clés manquantes: {sorted(missing)}"
-            )
+            if missing:
+                raise ValueError(
+                    f"Le bundle UMAP est incomplet. Clés manquantes: {sorted(missing)}"
+                )
             # On arrête explicitement avec un message clair plutôt que de laisser
             # l'application échouer plus loin de manière obscure.
 
-        latent_2d = np.asarray(data["latent_2d"])
+            update_progress(3, 5, "lecture de la projection UMAP")
+            latent_2d = np.asarray(data["latent_2d"])
         # Projection 2D des embeddings, typiquement shape (N, 2).
 
-        labels = np.asarray(data["labels"])
+            update_progress(4, 5, "lecture des labels et métadonnées")
+            labels = np.asarray(data["labels"])
         # Labels numériques associés à chaque point.
 
-        classnames = _coerce_object_array(data["classnames"])
+            classnames = _coerce_object_array(data["classnames"])
         # Noms des classes / styles, convertis proprement en array object.
 
-        filenames = _coerce_object_array(
-            [str(resolve_stored_path(fp)) for fp in data["filenames"]]
-        )
+            filenames = _coerce_object_array(
+                [str(resolve_stored_path(fp)) for fp in data["filenames"]]
+            )
         # Chemins ou noms des fichiers correspondant à chaque point projeté.
 
-    else:
-        latent_path = emb_root / "latent_2d.npy"
+        else:
+            latent_path = emb_root / "latent_2d.npy"
         # Si le bundle complet n'existe pas, on tente un chargement à partir de fichiers séparés.
 
-        if not latent_path.exists():
-            return None
+            if not latent_path.exists():
+                progress_text.empty()
+                progress_bar.empty()
+                return None
             # Si même la projection principale n'existe pas, on considère que l'UMAP
             # n'est pas disponible et on renvoie None.
 
-        latent_2d = np.load(latent_path)
+            update_progress(1, 5, "lecture de la projection UMAP")
+            latent_2d = _load_numpy_array(str(latent_path))
         # Charge la projection 2D.
 
-        labels = np.load(emb_root / "labels.npy")
+            update_progress(2, 5, "lecture des labels")
+            labels = _load_numpy_array(str(emb_root / "labels.npy"))
         # Charge les labels.
 
-        classnames = np.load(emb_root / "classnames.npy", allow_pickle=True)
+            update_progress(3, 5, "lecture des noms de styles")
+            classnames = _load_numpy_array(str(emb_root / "classnames.npy"), allow_pickle=True)
         # Charge les noms de classes.
 
-        filenames = np.load(emb_root / "filenames.npy", allow_pickle=True)
+            update_progress(4, 5, "lecture des chemins d'oeuvres")
+            filenames = _load_numpy_array(str(emb_root / "filenames.npy"), allow_pickle=True)
         # Charge les chemins de fichiers.
 
-        latent_2d = np.asarray(latent_2d)
-        labels = np.asarray(labels)
-        classnames = _coerce_object_array(classnames)
-        filenames = _coerce_object_array([str(resolve_stored_path(fp)) for fp in filenames])
+            latent_2d = np.asarray(latent_2d)
+            labels = np.asarray(labels)
+            classnames = _coerce_object_array(classnames)
+            filenames = _coerce_object_array([str(resolve_stored_path(fp)) for fp in filenames])
         # Uniformisation des types pour la suite du traitement.
 
-    if latent_2d.ndim != 2 or latent_2d.shape[1] < 2:
-        raise ValueError(
-            f"Projection UMAP invalide: shape={latent_2d.shape}, attendu=(N, 2)"
-        )
+        update_progress(5, 5, "validation finale")
+
+        if latent_2d.ndim != 2 or latent_2d.shape[1] < 2:
+            raise ValueError(
+                f"Projection UMAP invalide: shape={latent_2d.shape}, attendu=(N, 2)"
+            )
         # Vérifie que la projection a bien 2 dimensions au sens matrice
         # et au moins 2 colonnes.
         # UMAP destiné à un scatter 2D doit fournir un tableau de forme (N, 2).
 
-    n_latent = int(latent_2d.shape[0])
+        n_latent = int(latent_2d.shape[0])
     # Nombre de points dans la projection.
 
-    n_labels = int(len(labels))
+        n_labels = int(len(labels))
     # Nombre de labels.
 
-    n_filenames = int(len(filenames))
+        n_filenames = int(len(filenames))
     # Nombre de fichiers.
 
-    if not (n_latent == n_labels == n_filenames):
-        raise ValueError(
-            "Incohérence entre latent_2d, labels et filenames.\n"
-            f" - latent_2d : {n_latent}\n"
-            f" - labels    : {n_labels}\n"
-            f" - filenames : {n_filenames}\n"
-            "Relance compute_embeddings.py puis visualization_umap.py."
-        )
+        if not (n_latent == n_labels == n_filenames):
+            raise ValueError(
+                "Incohérence entre latent_2d, labels et filenames.\n"
+                f" - latent_2d : {n_latent}\n"
+                f" - labels    : {n_labels}\n"
+                f" - filenames : {n_filenames}\n"
+                "Relance compute_embeddings.py puis visualization_umap.py."
+            )
         # Contrôle de cohérence fondamental : chaque point projeté doit correspondre
         # à un label et à un fichier, ni plus ni moins.
         # Le message d'erreur guide aussi vers les scripts à relancer.
 
-    return latent_2d, labels, classnames, filenames
+        return latent_2d, labels, classnames, filenames
     # Renvoie l'ensemble des données nécessaires à la visualisation interactive.
+    finally:
+        progress_text.empty()
+        progress_bar.empty()
 
 
 @st.cache_data
@@ -647,23 +686,16 @@ k = 4
 # Une version plus avancée pourrait exposer ce paramètre à l'utilisateur via
 # un slider Streamlit, mais le garder fixe simplifie l'expérience.
 
-show_gradcam = st.checkbox(
-    "Afficher Grad-CAM++ (top-1)",
+show_gradcam_history = st.checkbox(
+    "Grad-CAM history",
     value=False,
 )
-# Ajoute une case à cocher pour activer ou non la visualisation Grad-CAM++.
+# Ajoute une case à cocher pour activer ou non l'historique Grad-CAM++.
 # value=False signifie qu'elle est décochée par défaut.
 # Cette option déclenche potentiellement un calcul coûteux, d'où son caractère optionnel.
 
-show_gradcam_history = False
-if show_gradcam:
-    show_gradcam_history = st.checkbox(
-        "Grad-CAM history",
-        value=False,
-    )
-
 available_layers: list[str] = []
-if show_gradcam and retriever is not None:
+if show_gradcam_history and retriever is not None:
     available_layers = retriever.available_explanation_layers()
     if not available_layers:
         st.warning("Aucune couche compatible n'a été trouvée pour Grad-CAM++.")
@@ -1276,7 +1308,7 @@ if uploaded is not None and retriever is not None:
     # -------------------------------------------------------------------------
     # Explication visuelle avec Grad-CAM++
     # -------------------------------------------------------------------------
-    if show_gradcam and available_layers:
+    if show_gradcam_history and available_layers:
         # Ce bloc n'est exécuté que si l'utilisateur a coché la case correspondante.
         # On garde ce calcul optionnel car Grad-CAM++ peut être plus lent
         # que la simple recherche des voisins les plus proches.
@@ -1285,40 +1317,30 @@ if uploaded is not None and retriever is not None:
         # Titre de la section d'explicabilité.
 
         try:
-            primary_layer_numbers = [245]
             history_layer_numbers = [10, 20, 50, 70, 100, 120, 150, 200, 240, 245]
 
-            primary_layers, missing_primary_layers = _select_explanation_layers(
-                available_layers,
-                primary_layer_numbers,
-            )
             history_layers, missing_history_layers = _select_explanation_layers(
                 available_layers,
                 history_layer_numbers,
             )
             _, layer_labels = _format_explanation_layer_options(available_layers)
 
-            if not primary_layers:
-                st.warning("La couche 245 n'est pas disponible pour ce modèle.")
+            if not history_layers:
+                st.warning("Aucune des couches de l'historique n'est disponible pour ce modèle.")
                 st.stop()
 
             with st.spinner("Calcul des cartes Grad-CAM++..."):
-                primary_explanations = [
-                    (
-                        layer_number,
-                        retriever.explain_similarity(
-                            query_path,
-                            best["filepath"],
-                            target_layer_name=layer_name,
-                        ),
-                    )
-                    for layer_number, layer_name in primary_layers
-                ]
-                # Calcule l'explication principale pour la couche 245.
-
                 history_explanations = []
-                if show_gradcam_history:
-                    history_explanations = [
+                history_total = len(history_layers)
+                history_progress_text = st.empty()
+                history_progress_bar = st.progress(0)
+
+                for history_index, (layer_number, layer_name) in enumerate(history_layers, start=1):
+                    history_progress_text.caption(
+                        f"Chargement de Grad-CAM history : {history_index}/{history_total} "
+                        f"(couche {layer_number})"
+                    )
+                    history_explanations.append(
                         (
                             layer_number,
                             retriever.explain_similarity(
@@ -1327,9 +1349,12 @@ if uploaded is not None and retriever is not None:
                                 target_layer_name=layer_name,
                             ),
                         )
-                        for layer_number, layer_name in history_layers
-                    ]
-                    # Calcule l'historique complet uniquement si l'utilisateur le demande.
+                    )
+                    history_progress_bar.progress(history_index / history_total)
+
+                history_progress_text.empty()
+                history_progress_bar.empty()
+                # Calcule l'historique complet pour les couches demandées.
 
             best_artist, best_title = _extract_artist_and_title(best["filepath"])
             # Extrait l'artiste et le titre du meilleur résultat pour les afficher textuellement.
@@ -1345,13 +1370,17 @@ if uploaded is not None and retriever is not None:
             # À noter : en Markdown classique, des sauts de ligne plus explicites
             # ou des puces pourraient encore améliorer le rendu.
 
-            st.caption("Affichage principal : image uploadée vs top-1 à la couche 245.")
+            st.markdown("**Grad-CAM history**")
+            st.caption(
+                f"{len(history_explanations)} paires de cartes affichees pour les couches "
+                "10, 20, 50, 70, 100, 120, 150, 200, 240, 245."
+            )
 
-            if missing_primary_layers:
-                missing_text = ", ".join(str(layer_number) for layer_number in missing_primary_layers)
-                st.caption(f"Couches principales non disponibles : {missing_text}.")
+            if missing_history_layers:
+                missing_text = ", ".join(str(layer_number) for layer_number in missing_history_layers)
+                st.caption(f"Couches d'historique non disponibles pour ce modèle : {missing_text}.")
 
-            for layer_number, explanation in primary_explanations:
+            for layer_number, explanation in history_explanations:
                 layer_name = explanation["target_layer"]
                 layer_label = layer_labels.get(layer_name, layer_name)
                 c1, c2 = st.columns(2)
@@ -1375,43 +1404,6 @@ if uploaded is not None and retriever is not None:
                         ),
                         width="stretch",
                     )
-                # Affiche côte à côte la requête et le top-1 pour chaque couche demandee.
-
-            if show_gradcam_history:
-                st.markdown("**Grad-CAM history**")
-                st.caption(
-                    f"{len(history_explanations)} paires de cartes affichees pour les couches "
-                    "10, 20, 50, 70, 100, 120, 150, 200, 240, 245."
-                )
-
-                if missing_history_layers:
-                    missing_text = ", ".join(str(layer_number) for layer_number in missing_history_layers)
-                    st.caption(f"Couches d'historique non disponibles pour ce modèle : {missing_text}.")
-
-                for layer_number, explanation in history_explanations:
-                    layer_name = explanation["target_layer"]
-                    layer_label = layer_labels.get(layer_name, layer_name)
-                    c1, c2 = st.columns(2)
-
-                    with c1:
-                        st.image(
-                            explanation["query_overlay"],
-                            caption=(
-                                f"Upload ({explanation['method']}) • couche {layer_number} • "
-                                f"{layer_label} • `{layer_name}` • similarité {explanation['similarity']:.3f}"
-                            ),
-                            width="stretch",
-                        )
-
-                    with c2:
-                        st.image(
-                            explanation["candidate_overlay"],
-                            caption=(
-                                f"Top-1 ({explanation['method']}) • couche {layer_number} • "
-                                f"{layer_label} • `{layer_name}` • similarité {explanation['similarity']:.3f}"
-                            ),
-                            width="stretch",
-                        )
 
         except Exception as exc:
             st.warning(f"Grad-CAM++ indisponible : {exc}")
