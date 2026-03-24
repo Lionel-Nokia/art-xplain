@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 112" role="img" aria-labelledby="title desc">
+  <title id="title">Art-Xplain logo</title>
+  <desc id="desc">Original geometric logo inspired by museum architecture with vertical columns and a red arch.</desc>
+  <rect width="260" height="112" rx="10" fill="#fffdf9"/>
+  <g transform="translate(18 16)">
+    <rect x="0" y="0" width="12" height="78" rx="2" fill="#111111"/>
+    <rect x="22" y="0" width="12" height="78" rx="2" fill="#111111"/>
+    <path d="M56 78V0h12v31.5c4.7-9.4 13.3-17.8 27.5-23.9 11.7-5 25.2-7.6 40.5-7.6v12c-13.6 0-25.3 2.1-35.1 6.2-18.2 7.7-28.9 20.7-32.9 39.8V78H56z" fill="#b1221c"/>
+    <path d="M146 78l23.4-38.4L147.3 0H161l16.3 28.3L193.7 0h13.8l-22 39.4L208.9 78h-13.7l-17.8-29.7L159.7 78H146z" fill="#111111"/>
+  </g>
+  <g fill="#111111">
+    <text x="18" y="102" font-family="Helvetica Neue, Arial, sans-serif" font-size="12" letter-spacing="2.8">ART-XPLAIN</text>
+  </g>
+</svg>

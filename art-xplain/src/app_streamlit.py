@@ -82,25 +82,308 @@ from src.retrieval import StyleRetriever
 # CONFIGURATION GÉNÉRALE DE L'INTERFACE STREAMLIT
 # =============================================================================
 
+ASSETS_DIR = PROJECT_ROOT / "assets"
+APP_LOGO_PATH = ASSETS_DIR / "artxplain-logo.svg"
+
+
+def _load_inline_svg(svg_path: Path) -> str:
+    """
+    Charge un SVG local et renvoie son contenu pour injection inline.
+    """
+    try:
+        return svg_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+
 st.set_page_config(page_title="Art-Xplain", layout="wide")
 # Configure la page Streamlit avant tout rendu visuel important.
 # page_title : titre de l'onglet du navigateur.
 # layout="wide" : utilise toute la largeur disponible, ce qui est très utile
 # pour afficher plusieurs images côte à côte et une visualisation UMAP large.
 
-st.title("Art-Xplain — Similarité stylistique")
-# Affiche le titre principal de l'application en haut de la page.
-# C'est le premier élément visible par l'utilisateur.
-
 st.markdown(
     """
     <style>
+    :root {
+        --museum-paper: #f6f3ee;
+        --museum-panel: rgba(255, 255, 255, 0.94);
+        --museum-panel-strong: rgba(255, 255, 255, 0.985);
+        --museum-ink: #111111;
+        --museum-muted: #575757;
+        --museum-line: rgba(17, 17, 17, 0.14);
+        --museum-accent: #b1221c;
+        --museum-accent-soft: rgba(177, 34, 28, 0.08);
+        --museum-shadow: 0 14px 34px rgba(17, 17, 17, 0.06);
+        --museum-font: "Georgia", "Iowan Old Style", "Times New Roman", serif;
+    }
+
+    html, body, [class*="css"] {
+        font-family: var(--museum-font);
+    }
+
+    .stApp {
+        color: var(--museum-ink);
+        background: #ffffff;
+    }
+
+    [data-testid="stAppViewContainer"] > .main {
+        background: transparent;
+    }
+
+    [data-testid="stHeader"] {
+        background: rgba(255, 255, 255, 0.88);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid rgba(17, 17, 17, 0.08);
+    }
+
+    [data-testid="block-container"] {
+        padding-top: 2.5rem;
+        padding-bottom: 4rem;
+    }
+
+    h1, h2, h3 {
+        font-family: var(--museum-font);
+        color: var(--museum-ink);
+        letter-spacing: 0.01em;
+    }
+
+    h3 {
+        font-size: 1.6rem;
+        margin-top: 1.4rem;
+    }
+
+    p, li, label, .stCaption {
+        color: var(--museum-muted);
+    }
+
+    .museum-hero {
+        padding: 2.2rem 2rem 1.9rem 2rem;
+        margin-bottom: 1.5rem;
+        border: 1px solid var(--museum-line);
+        border-radius: 10px;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(246, 243, 238, 0.78)),
+            linear-gradient(90deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.12)),
+            url("https://www.mam.paris.fr/sites/default/files/home/bandeau/hall_0.png");
+        background-size: cover;
+        background-position: center center;
+        box-shadow: var(--museum-shadow);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .museum-hero-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 1.3rem;
+    }
+
+    .museum-logo-wrap {
+        width: 176px;
+        min-width: 176px;
+        padding-top: 0.2rem;
+    }
+
+    .museum-logo-wrap svg {
+        display: block;
+        width: 100%;
+        height: auto;
+    }
+
+    .museum-hero-copy {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .museum-hero::after {
+        content: "";
+        position: absolute;
+        left: 2rem;
+        right: 2rem;
+        top: 0.95rem;
+        height: 4px;
+        background: var(--museum-accent);
+    }
+
+    .museum-kicker {
+        display: inline-block;
+        margin-bottom: 0.9rem;
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--museum-accent);
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+    }
+
+    .museum-title {
+        margin: 0.15rem 0 0 0;
+        font-size: clamp(2.6rem, 4vw, 4.9rem);
+        line-height: 0.96;
+    }
+
+    .museum-lead {
+        max-width: 52rem;
+        margin: 1rem 0 0 0;
+        font-size: 1rem;
+        line-height: 1.72;
+        color: var(--museum-muted);
+    }
+
+    .museum-meta {
+        margin-top: 1.4rem;
+        font-size: 0.8rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--museum-muted);
+    }
+
+    @media (max-width: 820px) {
+        .museum-hero-header {
+            flex-direction: column;
+            gap: 0.9rem;
+        }
+
+        .museum-logo-wrap {
+            width: 152px;
+            min-width: 152px;
+        }
+    }
+
+    .museum-card {
+        padding: 1rem 1.1rem;
+        margin: 0.45rem 0 0.8rem 0;
+        border: 1px solid var(--museum-line);
+        border-radius: 8px;
+        background: var(--museum-panel);
+        box-shadow: var(--museum-shadow);
+    }
+
+    .museum-card strong {
+        display: block;
+        color: var(--museum-ink);
+        font-family: var(--museum-font);
+        font-size: 1.08rem;
+        margin-bottom: 0.15rem;
+    }
+
+    .museum-card em {
+        color: var(--museum-muted);
+        font-size: 0.96rem;
+    }
+
+    .museum-style-chip {
+        display: inline-block;
+        margin: 0.15rem 0 1rem 0;
+        padding: 0.48rem 0.88rem;
+        border-radius: 4px;
+        border: 1px solid rgba(177, 34, 28, 0.22);
+        background: var(--museum-accent-soft);
+        color: var(--museum-accent);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+
+    [data-testid="stFileUploaderDropzone"],
+    [data-testid="stExpander"],
+    [data-testid="stDataFrame"],
+    [data-testid="stAlert"] {
+        border: 1px solid var(--museum-line) !important;
+        border-radius: 8px !important;
+        background: var(--museum-panel) !important;
+        box-shadow: var(--museum-shadow);
+    }
+
+    [data-testid="stFileUploaderDropzone"] {
+        background:
+            linear-gradient(180deg, rgba(177, 34, 28, 0.03), rgba(255, 255, 255, 0.98)) !important;
+        border-style: dashed !important;
+    }
+
     div[data-testid="stButton"] > button {
         width: 100%;
         justify-content: flex-start;
         text-align: left;
+        border-radius: 4px;
+        border: 1px solid rgba(17, 17, 17, 0.1);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--museum-ink);
+        padding: 0.28rem 0.5rem;
+        min-height: 1.7rem;
+        box-shadow: none;
+        transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+    }
+
+    div[data-testid="stButton"] > button:hover {
+        border-color: rgba(177, 34, 28, 0.28);
+        background: rgba(177, 34, 28, 0.05);
+        color: var(--museum-accent);
+    }
+
+    div[data-testid="stButton"] > button p {
+        color: inherit;
+        width: 100%;
+        margin: 0;
+        text-align: left;
+        font-size: 0.88rem;
+        line-height: 1.1;
+    }
+
+    [data-testid="stCheckbox"] label,
+    [data-testid="stFileUploader"] label {
+        color: var(--museum-ink);
+        font-weight: 600;
+    }
+
+    [data-testid="stImage"] img {
+        border-radius: 4px;
+        border: 1px solid var(--museum-line);
+        box-shadow: 0 16px 32px rgba(16, 16, 16, 0.10);
+    }
+
+    [data-testid="stCaptionContainer"] {
+        color: var(--museum-muted);
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.5rem;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 999px;
+        background: var(--museum-panel);
+        border: 1px solid var(--museum-line);
+    }
+
+    .stMarkdown a {
+        color: var(--museum-accent);
     }
     </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    f"""
+    <section class="museum-hero">
+        <div class="museum-hero-header">
+            <div class="museum-logo-wrap">{_load_inline_svg(APP_LOGO_PATH)}</div>
+            <div class="museum-hero-copy">
+                <span class="museum-kicker">Musee d'Art Numérique & Datascience</span>
+                <h1 class="museum-title">Art-Xplain</h1>
+                <p class="museum-lead">
+                    Exploration des proximités
+                    stylistiques entre œuvres, à partir d'une image source, de voisinages visuels
+                    et d'une lecture analytique par embeddings, UMAP et Grad-CAM++.
+                </p>
+                <div class="museum-meta">Collections numeriques • Similarite stylistique • Analyse visuelle</div>
+            </div>
+        </div>
+    </section>
     """,
     unsafe_allow_html=True,
 )
@@ -717,20 +1000,6 @@ k = 4
 # Une version plus avancée pourrait exposer ce paramètre à l'utilisateur via
 # un slider Streamlit, mais le garder fixe simplifie l'expérience.
 
-show_gradcam_history = st.checkbox(
-    "Grad-CAM history",
-    key="show_gradcam_history",
-)
-# Ajoute une case à cocher pour activer ou non l'historique Grad-CAM++.
-# value=False signifie qu'elle est décochée par défaut.
-# Cette option déclenche potentiellement un calcul coûteux, d'où son caractère optionnel.
-
-available_layers: list[str] = []
-if show_gradcam_history and retriever is not None:
-    available_layers = retriever.available_explanation_layers()
-    if not available_layers:
-        st.warning("Aucune couche compatible n'a été trouvée pour Grad-CAM++.")
-
 
 # =============================================================================
 # TRAITEMENT PRINCIPAL
@@ -834,14 +1103,21 @@ if retriever is not None:
     st.markdown(
         f"""
         <p style="line-height:1.1; margin:0;">
-            <strong>{source_artist}</strong> <br>
+            <strong>{source_artist}</strong><br>
             <em>{source_title}</em>
         </p>
         """,
         unsafe_allow_html=True
     )
 
-    st.markdown(f"**Style suggéré :** {best['style']}")
+    st.markdown(
+        f"""
+        <div class="museum-style-chip">
+            Style suggéré • {best['style']}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     # Affiche le style du meilleur résultat en gras grâce au Markdown.
     # best['style'] est supposé provenir du moteur de retrieval.
 
@@ -1363,6 +1639,19 @@ if retriever is not None:
                     "les distances calculées dans l'espace latent d'origine."
                 )
 
+    show_gradcam_history = st.checkbox(
+        "Grad-CAM history",
+        key="show_gradcam_history",
+    )
+    # Ajoute la case à cocher entre le bloc UMAP et l'explication visuelle.
+    # Cette option déclenche potentiellement un calcul coûteux, d'où son caractère optionnel.
+
+    available_layers: list[str] = []
+    if show_gradcam_history and retriever is not None:
+        available_layers = retriever.available_explanation_layers()
+        if not available_layers:
+            st.warning("Aucune couche compatible n'a été trouvée pour Grad-CAM++.")
+
     # -------------------------------------------------------------------------
     # Explication visuelle avec Grad-CAM++
     # -------------------------------------------------------------------------
@@ -1417,10 +1706,13 @@ if retriever is not None:
             with st.expander("Explication visuelle (Grad-CAM++)", expanded=False):
                 st.markdown(
                     f"""
-                    **Top-1 sélectionné :**
-                    **Artiste :** {best_artist}
-                    **Tableau :** {best_title}
+                    <div class="museum-card">
+                        <strong>Top-1 sélectionné</strong>
+                        <em>{best_artist} • {best_title}</em>
+                    </div>
                     """
+                    ,
+                    unsafe_allow_html=True,
                 )
                 # Affiche des informations textuelles sur le top-1.
                 # À noter : en Markdown classique, des sauts de ligne plus explicites
