@@ -3,7 +3,7 @@
 
 
 ---
-_version LN 0.03.24.1000_
+_version 0.03.24.1700_
 - **Emmanuelle**
 - **Lucile**
 - **Lionel**
@@ -19,7 +19,6 @@ Le pipeline couvre:
 ## Architecture
 
 ![Architecture](images/archi-generale.png)
-
 
 
 ## 1) Structure des données
