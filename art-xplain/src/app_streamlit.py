@@ -683,6 +683,12 @@ runtime_status = render_runtime_status()
 if retriever_error is not None:
     st.warning(f"Moteur de retrieval indisponible : {retriever_error}")
 
+if "show_gradcam_history" not in st.session_state:
+    st.session_state["show_gradcam_history"] = False
+
+if st.session_state.pop("reset_gradcam_history", False):
+    st.session_state["show_gradcam_history"] = False
+
 upload_disabled = (retriever_error is not None) or (not runtime_status["upload_enabled"])
 
 uploaded = st.file_uploader(
@@ -701,6 +707,7 @@ if uploaded is not None:
 
 if uploaded_signature != st.session_state.get("uploaded_signature"):
     st.session_state["uploaded_signature"] = uploaded_signature
+    st.session_state["show_gradcam_history"] = False
     if uploaded_signature is not None:
         st.session_state["source_mode"] = "uploaded"
 
@@ -712,7 +719,7 @@ k = 4
 
 show_gradcam_history = st.checkbox(
     "Grad-CAM history",
-    value=False,
+    key="show_gradcam_history",
 )
 # Ajoute une case à cocher pour activer ou non l'historique Grad-CAM++.
 # value=False signifie qu'elle est décochée par défaut.
@@ -890,6 +897,7 @@ if retriever is not None:
                 key=f"use-as-source-{i}",
                 help="Cliquer pour charger cette œuvre comme nouvelle image source",
             ):
+                st.session_state["reset_gradcam_history"] = True
                 st.session_state["source_mode"] = "gallery"
                 st.session_state["source_image_path"] = str(res["filepath"])
                 st.session_state["source_image_name"] = Path(str(res["filepath"])).name

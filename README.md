@@ -3,7 +3,7 @@
 
 
 ---
-_version LN 0.03.23.1645_
+_version LN 0.03.24.1000_
 - **Emmanuelle**
 - **Lucile**
 - **Lionel**
@@ -39,7 +39,7 @@ Ces chemins sont configurés dans `config.yaml` via:
 ## 2) Installation
 
 ```bash
-make install
+make build_env
 ```
 
 ## 3) Pipeline complet
