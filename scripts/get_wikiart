@@ -1,0 +1,66 @@
+#!/bin/zsh
+
+set -euo pipefail
+
+PROJECT_DIR="${1:-art-xplain}"
+DATA_IN_DIR="${PROJECT_DIR}/data/in"
+TMP_DIR="$(mktemp -d)"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+cleanup() {
+  rm -rf "${TMP_DIR}"
+}
+
+trap cleanup EXIT
+
+if ! command -v kaggle >/dev/null 2>&1; then
+  echo "La CLI kaggle est requise mais introuvable."
+  exit 1
+fi
+
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+  echo "Python est requis pour estimer la taille du zip, mais ${PYTHON_BIN} est introuvable."
+  exit 1
+fi
+
+echo "Téléchargement du dataset WikiArt depuis Kaggle..."
+kaggle datasets download steubk/wikiart --path "${TMP_DIR}"
+
+ZIP_FILE="${TMP_DIR}/wikiart.zip"
+
+if [ ! -f "${ZIP_FILE}" ]; then
+  echo "Archive Kaggle introuvable: ${ZIP_FILE}"
+  exit 1
+fi
+
+echo "Réinitialisation de ${DATA_IN_DIR}..."
+rm -rf "${DATA_IN_DIR}"
+mkdir -p "${DATA_IN_DIR}"
+
+UNCOMPRESSED_BYTES="$("${PYTHON_BIN}" -c 'import sys, zipfile; archive = zipfile.ZipFile(sys.argv[1]); print(sum(info.file_size for info in archive.infolist()))' "${ZIP_FILE}")"
+AVAILABLE_BYTES="$(df -k "${PROJECT_DIR}" | awk 'NR==2 {print $4 * 1024}')"
+
+if [ "${AVAILABLE_BYTES}" -lt "${UNCOMPRESSED_BYTES}" ]; then
+  echo "Espace disque insuffisant pour extraire WikiArt dans ${DATA_IN_DIR}."
+  echo "Espace disponible: ${AVAILABLE_BYTES} octets"
+  echo "Taille de l'archive une fois extraite: ${UNCOMPRESSED_BYTES} octets"
+  exit 1
+fi
+
+echo "Extraction de ${ZIP_FILE} dans ${DATA_IN_DIR}..."
+if command -v ditto >/dev/null 2>&1; then
+  EXTRACTOR=(ditto -x -k "${ZIP_FILE}" "${DATA_IN_DIR}")
+elif command -v bsdtar >/dev/null 2>&1; then
+  EXTRACTOR=(bsdtar -xf "${ZIP_FILE}" -C "${DATA_IN_DIR}")
+else
+  EXTRACTOR=(unzip -q -o "${ZIP_FILE}" -d "${DATA_IN_DIR}")
+fi
+
+if ! "${EXTRACTOR[@]}"; then
+  rm -rf "${DATA_IN_DIR}"
+  mkdir -p "${DATA_IN_DIR}"
+  echo "L'extraction de WikiArt a échoué. Le dossier ${DATA_IN_DIR} a été réinitialisé."
+  exit 1
+fi
+
+echo "Dataset WikiArt prêt dans ${DATA_IN_DIR}."

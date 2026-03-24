@@ -7,22 +7,23 @@ ENV_NAME := art-xplain
 PROJECT_DIR := art-xplain
 ENV_PYTHON := $(PYENV_ROOT)/versions/$(ENV_NAME)/bin/python
 
-.PHONY: help install cleanall dataset train embeddings umap run all get_model
+.PHONY: help install build_env cleanall dataset train embeddings umap run build_model fix_model get_wikiart
 
 help:
 	@echo "Commandes disponibles :"
-	@echo "  make install    - cree/verifie l'environnement pyenv 'art-xplain' et installe requirements.txt"
-	@echo "  make cleanall   - supprime data/out, models et embeddings"
-	@echo "  make dataset    - reconstruit le dataset Keras avec nettoyage prealable"
-	@echo "  make train      - entraine l'encodeur"
-	@echo "  make embeddings - calcule les embeddings"
-	@echo "  make umap       - calcule la projection UMAP"
-	@echo "  make get_model  - telecharge et decompresse embeddings et models"
-	@echo "  make run        - lance l'application Streamlit"
-	@echo "  make get_model  - telecharge les models et embeddings pre-entraines"
-	@echo "  make all        - enchaine dataset, train, embeddings et umap"
+	@echo "  make install      - enchaine build_env, cleanall, get_wikiart et dataset"
+	@echo "  make build_env    - cree/verifie l'environnement pyenv 'art-xplain' et installe requirements.txt"
+	@echo "  make cleanall     - supprime data/out, models et embeddings"
+	@echo "  make dataset      - reconstruit le dataset avec nettoyage prealable"
+	@echo "  make train        - entraine l'encodeur"
+	@echo "  make embeddings   - calcule les embeddings"
+	@echo "  make umap         - calcule la projection UMAP"
+	@echo "  make fix_model    - telecharge et decompresse embeddings et models"
+	@echo "  make get_wikiart  - telecharge WikiArt via Kaggle et reinitialise data/in"
+	@echo "  make run          - lance l'application Streamlit"
+	@echo "  make build_model  - enchaine train, embeddings et umap"
 
-install:
+build_env:
 	@if ! command -v pyenv >/dev/null 2>&1; then \
 		echo "pyenv est requis mais introuvable."; \
 		exit 1; \
@@ -59,7 +60,7 @@ embeddings:
 umap:
 	@cd "$(PROJECT_DIR)" && python -m src.visualization_umap
 
-get_model:
+fix_model:
 	@cd "$(PROJECT_DIR)" && wget https://art-xplain.s3.eu-west-3.amazonaws.com/embeddings.zip
 	@cd "$(PROJECT_DIR)" && unzip embeddings.zip
 	@cd "$(PROJECT_DIR)" && rm embeddings.zip
@@ -67,15 +68,12 @@ get_model:
 	@cd "$(PROJECT_DIR)" && unzip models.zip
 	@cd "$(PROJECT_DIR)" && rm models.zip
 
+get_wikiart:
+	@./scripts/get_wikiart "$(PROJECT_DIR)"
+
 run:
 	@cd "$(PROJECT_DIR)" && streamlit run src/app_streamlit.py
 
-get_model:
-	@echo "Telechargement des embeddings et models..."
-	@cd "$(PROJECT_DIR)" && \
-	wget https://art-xplain.s3.eu-west-3.amazonaws.com/embeddings.zip && \
-	unzip embeddings.zip && rm embeddings.zip && \
-	wget https://art-xplain.s3.eu-west-3.amazonaws.com/models.zip && \
-	unzip models.zip && rm models.zip
+install: build_env cleanall get_wikiart dataset
 
-all: dataset train embeddings umap
+build_model: train embeddings umap
