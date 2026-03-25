@@ -21,13 +21,14 @@ ENV_BIN := $(PYENV_ROOT)/versions/$(ENV_NAME)/bin
 ENV_PYTHON := $(ENV_BIN)/python
 ENV_STREAMLIT := $(ENV_PYTHON) -m streamlit
 
-.PHONY: help install build_env cleanall dataset train embeddings umap run build_model download_model get_wikiart test_gpu test_env all
+.PHONY: help install build_env clean_model clean_wikiart dataset train embeddings umap run build_model download_model get_wikiart test_gpu test_env all
 
 help:
 	@echo "Commandes disponibles :"
-	@echo "  make install        - enchaine build_env, cleanall, get_wikiart et dataset"
+	@echo "  make install        - enchaine build_env, clean_model, get_wikiart et dataset"
 	@echo "  make build_env      - cree/verifie l'environnement pyenv '$(ENV_NAME)' et installe requirements.txt"
-	@echo "  make cleanall       - supprime data/out, models et embeddings"
+	@echo "  make clean_model    - supprime data/out, models et embeddings"
+	@echo "  make clean_wikiart  - supprime data/in"
 	@echo "  make dataset        - reconstruit le dataset avec nettoyage prealable"
 	@echo "  make train          - entraine l'encodeur"
 	@echo "  make embeddings     - calcule les embeddings"
@@ -59,11 +60,15 @@ build_env:
 	@"$(ENV_PYTHON)" -m pip install --upgrade pip setuptools wheel
 	@"$(ENV_PYTHON)" -m pip install -r requirements.txt
 
-cleanall:
+clean_model:
 	@echo "Suppression de $(PROJECT_DIR)/data/out, $(PROJECT_DIR)/models et $(PROJECT_DIR)/embeddings..."
 	@rm -rf "$(PROJECT_DIR)/data/out"
 	@rm -rf "$(PROJECT_DIR)/models"
 	@rm -rf "$(PROJECT_DIR)/embeddings"
+
+clean_wikiart:
+	@echo "Suppression de $(PROJECT_DIR)/data/in..."
+	@rm -rf "$(PROJECT_DIR)/data/in"
 
 dataset:
 	@cd "$(PROJECT_DIR)" && "$(ENV_PYTHON)" -m src.build_dataset_from_csv --clean-out
@@ -127,7 +132,12 @@ download_model:
 	fi
 
 get_wikiart:
-	@./scripts/get_wikiart "$(PROJECT_DIR)"
+	@if [ ! -d "/data" ]; then \
+		./scripts/get_wikiart "$(PROJECT_DIR)"; \
+	else \
+		rm -rf "$(PROJECT_DIR)/data/in"; \
+		ln -s /data/in "$(PROJECT_DIR)/data/in"; \
+	fi
 
 run:
 	@cd "$(PROJECT_DIR)" && \
@@ -158,7 +168,7 @@ test_gpu:
 	fi; \
 	"$(ENV_PYTHON)" -c 'import tensorflow as tf; print("TF:", tf.__version__); print("Built with CUDA:", tf.test.is_built_with_cuda()); print("GPUs:", tf.config.list_physical_devices("GPU"))'
 
-install: build_env cleanall get_wikiart dataset
+install: build_env clean_model get_wikiart dataset
 
 build_model: train embeddings umap
 
