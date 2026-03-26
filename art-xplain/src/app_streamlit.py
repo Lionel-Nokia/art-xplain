@@ -11,6 +11,7 @@ import sys
 import atexit
 import asyncio
 import json
+import re
 import unicodedata
 from html import escape
 # Module standard donnant accès à des informations et réglages liés à l'interpréteur Python.
@@ -220,12 +221,28 @@ def _match_normalized_text(expected: str, candidate: str) -> bool:
     return False
 
 
+def _token_overlap_score(reference: str, candidate: str) -> float:
+    """
+    Calcule un score simple de recouvrement entre deux textes normalisés.
+    """
+    reference_tokens = set(reference.split())
+    candidate_tokens = set(candidate.split())
+    if not reference_tokens or not candidate_tokens:
+        return 0.0
+
+    overlap = reference_tokens.intersection(candidate_tokens)
+    if not overlap:
+        return 0.0
+
+    return len(overlap) / max(len(reference_tokens), 1)
+
+
 def _format_analysis_text(value: object) -> str:
     """
     Convertit une structure JSON en texte lisible.
     """
     if isinstance(value, str):
-        return value.strip()
+        return _strip_http_links(value.strip())
     if isinstance(value, (int, float, bool)):
         return str(value)
     if isinstance(value, list):
@@ -237,8 +254,33 @@ def _format_analysis_text(value: object) -> str:
             item_text = _format_analysis_text(item)
             if item_text:
                 parts.append(f"{key} : {item_text}")
-        return "\n".join(parts)
-    return str(value).strip()
+        return _strip_http_links("\n".join(parts))
+    return _strip_http_links(str(value).strip())
+
+
+def _analysis_text_to_html(text: str) -> str:
+    """
+    Transforme le texte d'analyse en HTML en mettant certains sous-titres en gras.
+    """
+    html = escape(str(text).strip())
+    for subtitle in ["Contexte historique et technique", "Spécificités stylistiques"]:
+        html = html.replace(subtitle, f"<strong>{subtitle}</strong>")
+    return html.replace("\n", "<br>")
+
+
+def _strip_http_links(text: str) -> str:
+    """
+    Supprime les liens HTTP/HTTPS du texte tout en conservant le contenu utile.
+    """
+    cleaned = str(text)
+    cleaned = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1", cleaned)
+    cleaned = re.sub(r"\((https?://[^)]+)\)", "", cleaned)
+    cleaned = re.sub(r"https?://\S+", "", cleaned)
+    cleaned = re.sub(r"\s+\)", ")", cleaned)
+    cleaned = re.sub(r"\(\s+\)", "", cleaned)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def _split_analysis_title(title: object) -> tuple[str, str]:
@@ -252,6 +294,20 @@ def _split_analysis_title(title: object) -> tuple[str, str]:
     return artist.strip(), artwork.strip()
 
 
+def _clean_analysis_subtitle(text: object) -> str:
+    """
+    Nettoie certains sous-titres génériques peu utiles à l'affichage.
+    """
+    subtitle = str(text).strip()
+    normalized = _normalize_lookup_text(subtitle)
+    if normalized in {
+        "contexte historique et stylistique",
+        "contexte historique",
+    }:
+        return ""
+    return subtitle
+
+
 def _format_chapter_content(chapter_content: object) -> str:
     """
     Formate le contenu d'un chapitre en concaténant `sous_titre` et `texte`.
@@ -262,7 +318,7 @@ def _format_chapter_content(chapter_content: object) -> str:
     blocks: list[str] = []
     for item in chapter_content:
         if isinstance(item, dict):
-            subtitle = str(item.get("sous_titre", "")).strip()
+            subtitle = _clean_analysis_subtitle(item.get("sous_titre", ""))
             text = str(item.get("texte", "")).strip()
             if subtitle and text:
                 blocks.append(f"{subtitle}\n{text}")
@@ -278,13 +334,40 @@ def _format_chapter_content(chapter_content: object) -> str:
     return "\n\n".join(block for block in blocks if block)
 
 
+def _extract_json_payload(final_output: str) -> dict[str, object] | list[object] | None:
+    """
+    Extrait un JSON depuis une réponse brute, même si elle est entourée de fences Markdown.
+    """
+    raw_text = str(final_output).strip()
+    candidates = [raw_text]
+
+    if "```" in raw_text:
+        fenced_blocks = raw_text.split("```")
+        for block in fenced_blocks:
+            cleaned = block.strip()
+            if not cleaned:
+                continue
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].strip()
+            candidates.append(cleaned)
+
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, (dict, list)):
+            return payload
+
+    return None
+
+
 def _extract_chapters_payload(final_output: str) -> list[dict[str, object]] | None:
     """
     Relit le JSON et retourne la liste des chapitres si présente.
     """
-    try:
-        payload = json.loads(final_output)
-    except json.JSONDecodeError:
+    payload = _extract_json_payload(final_output)
+    if payload is None:
         return None
 
     if isinstance(payload, dict):
@@ -293,33 +376,6 @@ def _extract_chapters_payload(final_output: str) -> list[dict[str, object]] | No
             return chapters
 
     return None
-
-
-def _extract_analysis_debug_rows(final_output: str) -> list[dict[str, str]]:
-    """
-    Prépare un aperçu de debug des chapitres reçus depuis l'agent IA.
-    """
-    chapters = _extract_chapters_payload(final_output)
-    if chapters is None:
-        return []
-
-    debug_rows: list[dict[str, str]] = []
-    for idx, chapter in enumerate(chapters):
-        if not isinstance(chapter, dict):
-            continue
-        chapter_title = str(chapter.get("titre", "")).strip()
-        chapter_artist, chapter_artwork = _split_analysis_title(chapter_title)
-        debug_rows.append(
-            {
-                "rang_ia": str(idx + 1),
-                "titre_chapitre": chapter_title,
-                "artiste_ia": chapter_artist,
-                "tableau_ia": chapter_artwork,
-                "titre_normalise": _normalize_lookup_text(chapter_artwork),
-            }
-        )
-
-    return debug_rows
 
 
 def _match_artwork_analysis(
@@ -373,6 +429,84 @@ def _extract_global_analysis(final_output: str) -> str | None:
             chapter_title = _normalize_lookup_text(chapter.get("titre", ""))
             if "proximite stylistique" in chapter_title:
                 return _format_chapter_content(chapter.get("contenu", []))
+
+    return None
+
+
+def _match_source_artwork_analysis(
+    final_output: str,
+    source_artist: str,
+    source_title: str,
+    artwork_of_interest: str,
+    source_display_name: str | None = None,
+) -> str | None:
+    """
+    Retrouve l'analyse de l'oeuvre d'intérêt sans jamais tomber sur un tableau suggéré.
+    """
+    direct_match = _match_artwork_analysis(final_output, source_artist, source_title)
+    if direct_match:
+        return direct_match
+
+    chapters = _extract_chapters_payload(final_output)
+    if chapters is None:
+        return None
+
+    source_title_key = _normalize_lookup_text(source_title)
+    interest_key = _normalize_lookup_text(artwork_of_interest)
+    display_key = _normalize_lookup_text(Path(str(source_display_name or "")).stem)
+    source_artist_key = _normalize_lookup_text(source_artist)
+
+    candidate_keys = [
+        key for key in [source_title_key, interest_key, display_key] if key
+    ]
+
+    best_score = 0.0
+    best_content: str | None = None
+
+    for chapter in chapters:
+        if not isinstance(chapter, dict):
+            continue
+
+        chapter_title = str(chapter.get("titre", "")).strip()
+        normalized_chapter_title = _normalize_lookup_text(chapter_title)
+
+        if "proximite stylistique" in normalized_chapter_title:
+            continue
+
+        chapter_artist, chapter_artwork = _split_analysis_title(chapter_title)
+        normalized_chapter_artist = _normalize_lookup_text(chapter_artist)
+        normalized_chapter_artwork = _normalize_lookup_text(chapter_artwork)
+
+        if any(
+            _match_normalized_text(candidate_key, normalized_chapter_title)
+            or _match_normalized_text(candidate_key, normalized_chapter_artwork)
+            for candidate_key in candidate_keys
+        ):
+            return _format_chapter_content(chapter.get("contenu", []))
+
+        score = 0.0
+        for candidate_key in candidate_keys:
+            score = max(
+                score,
+                _token_overlap_score(candidate_key, normalized_chapter_title),
+                _token_overlap_score(candidate_key, normalized_chapter_artwork),
+            )
+
+        if source_artist_key and normalized_chapter_artist:
+            if _match_normalized_text(source_artist_key, normalized_chapter_artist):
+                score += 0.2
+            else:
+                score += min(
+                    _token_overlap_score(source_artist_key, normalized_chapter_artist),
+                    0.2,
+                )
+
+        if score > best_score:
+            best_score = score
+            best_content = _format_chapter_content(chapter.get("contenu", []))
+
+    if best_score >= 0.55:
+        return best_content
 
     return None
 
@@ -1486,6 +1620,9 @@ if "show_gradcam_history" not in st.session_state:
 if st.session_state.pop("reset_gradcam_history", False):
     st.session_state["show_gradcam_history"] = False
 
+if st.session_state.pop("reset_ai_analyses", False):
+    st.session_state["show_ai_analyses"] = False
+
 upload_disabled = (retriever_error is not None) or (not runtime_status["upload_enabled"])
 
 uploaded = st.file_uploader(
@@ -1664,7 +1801,7 @@ if retriever is not None:
     if ai_agent_enabled:
         show_ai_analyses = st.checkbox(
             "Afficher les analyses IA sous les tableaux",
-            value=True,
+            value=False,
             key="show_ai_analyses",
         )
 
@@ -1681,13 +1818,61 @@ if retriever is not None:
         ]
     )
 
-    if ai_agent_enabled and not candidates_df.empty:
+    should_run_ai_analysis = ai_agent_enabled and show_ai_analyses
+
+    if should_run_ai_analysis and not candidates_df.empty:
         candidates_json = json.dumps(candidates_df.to_dict(orient="records"), ensure_ascii=False)
+        ai_progress_text = st.empty()
+        ai_progress_bar = st.progress(0)
         try:
-            with st.spinner("Génération des analyses IA..."):
-                ai_analysis_payload = _get_cached_ai_analysis(candidates_json, artwork_of_interest)
+            ai_progress_text.caption("Chargement des analyses IA : préparation des œuvres")
+            ai_progress_bar.progress(0.2)
+
+            ai_progress_text.caption("Chargement des analyses IA : envoi de la requête")
+            ai_progress_bar.progress(0.45)
+
+            ai_analysis_payload = _get_cached_ai_analysis(candidates_json, artwork_of_interest)
+
+            ai_progress_text.caption("Chargement des analyses IA : extraction des chapitres")
+            ai_progress_bar.progress(0.8)
+
+            _extract_chapters_payload(ai_analysis_payload["final_output"])
+
+            ai_progress_text.caption("Chargement des analyses IA : terminé")
+            ai_progress_bar.progress(1.0)
         except Exception as exc:
             ai_analysis_error = str(exc)
+        finally:
+            ai_progress_text.empty()
+            ai_progress_bar.empty()
+
+    if should_run_ai_analysis and ai_analysis_payload is not None:
+        source_analysis = _match_source_artwork_analysis(
+            ai_analysis_payload["final_output"],
+            source_artist,
+            source_title,
+            artwork_of_interest,
+            source_display_name,
+        )
+        if source_analysis:
+            with st.expander("Analyse IA de l'image requête", expanded=False):
+                st.markdown(
+                    f"""
+                    <div style="
+                        margin-top: 0.2rem;
+                        padding: 0.9rem 1rem;
+                        border: 1px solid rgba(17, 17, 17, 0.1);
+                        border-radius: 10px;
+                        background: rgba(246, 243, 238, 0.72);
+                        color: #1d1d1d;
+                        line-height: 1.55;
+                        font-size: 0.92rem;
+                    ">
+                        {_analysis_text_to_html(source_analysis)}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
     # -------------------------------------------------------------------------
     # Affichage des résultats visuels
@@ -1742,6 +1927,7 @@ if retriever is not None:
                 help="Cliquer pour charger cette œuvre comme nouvelle image source",
             ):
                 st.session_state["reset_gradcam_history"] = True
+                st.session_state["reset_ai_analyses"] = True
                 st.session_state["source_mode"] = "gallery"
                 st.session_state["source_image_path"] = str(res["filepath"])
                 st.session_state["source_image_name"] = Path(str(res["filepath"])).name
@@ -1749,95 +1935,65 @@ if retriever is not None:
             # Le titre devient cliquable : un clic relance la recherche
             # avec cette œuvre comme nouvelle image source.
 
-            if show_ai_analyses:
-                if ai_analysis_payload is not None:
+    if ai_agent_enabled and should_run_ai_analysis:
+        with st.expander("Analyses IA et comparaison stylistique globale", expanded=False):
+            if ai_analysis_payload is not None:
+                analysis_cols = st.columns(min(4, len(rows)))
+                for i, row in enumerate(rows):
                     artwork_analysis = _match_artwork_analysis(
                         ai_analysis_payload["final_output"],
-                        artist,
-                        title,
+                        row["artiste"],
+                        row["tableau"],
                         i,
                     )
-                    if artwork_analysis:
-                        st.markdown(
-                            f"""
-                            <div style="
-                                margin-top: 0.75rem;
-                                padding: 0.9rem 1rem;
-                                border: 1px solid rgba(17, 17, 17, 0.1);
-                                border-radius: 10px;
-                                background: rgba(246, 243, 238, 0.72);
-                                color: #1d1d1d;
-                                line-height: 1.55;
-                                font-size: 0.92rem;
-                                white-space: pre-wrap;
-                            ">
-                                <strong>Analyse IA</strong><br>
-                                {escape(artwork_analysis)}
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.caption("Analyse IA non trouvée pour cette œuvre.")
-                elif ai_analysis_error is not None:
-                    st.caption(f"Analyse IA indisponible : {ai_analysis_error}")
+                    with analysis_cols[i % len(analysis_cols)]:
+                        st.markdown(f"**{row['artiste']}**  \n*{row['tableau']}*")
+                        if artwork_analysis:
+                            st.markdown(
+                                f"""
+                                <div style="
+                                    margin-top: 0.2rem;
+                                    margin-bottom: 0.9rem;
+                                    padding: 0.9rem 1rem;
+                                    border: 1px solid rgba(17, 17, 17, 0.08);
+                                    border-radius: 10px;
+                                    background: rgba(255, 255, 255, 0.55);
+                                    color: #1d1d1d;
+                                    line-height: 1.55;
+                                    font-size: 0.92rem;
+                                ">
+                                    {_analysis_text_to_html(artwork_analysis)}
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            st.caption("Analyse IA non trouvée pour cette œuvre.")
 
-    if ai_agent_enabled:
-        st.subheader("Comparaison stylistique globale")
-        if ai_analysis_payload is not None:
-            global_analysis = _extract_global_analysis(ai_analysis_payload["final_output"])
-            if global_analysis:
-                st.markdown(
-                    f"""
-                    <div style="
-                        margin-top: 0.2rem;
-                        padding: 1rem 1.1rem;
-                        border-left: 6px solid #b1221c;
-                        border-radius: 10px;
-                        background: rgba(246, 243, 238, 0.82);
-                        color: #1d1d1d;
-                        line-height: 1.6;
-                        white-space: pre-wrap;
-                    ">
-                        {escape(global_analysis)}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.info("La comparaison stylistique globale n'a pas été trouvée dans la réponse IA.")
-        elif ai_analysis_error is not None:
-            st.warning(f"Comparaison stylistique globale indisponible : {ai_analysis_error}")
-
-        if ai_analysis_payload is not None:
-            with st.expander("Debug analyse IA", expanded=False):
-                st.caption("Oeuvres affichées dans l'application")
-                st.dataframe(
-                    pd.DataFrame(
-                        [
-                            {
-                                "rang_resultat": row["rang"],
-                                "artiste_app": row["artiste"],
-                                "tableau_app": row["tableau"],
-                                "tableau_normalise": _normalize_lookup_text(row["tableau"]),
-                            }
-                            for row in rows
-                        ]
-                    ),
-                    width="stretch",
-                    hide_index=True,
-                )
-
-                debug_rows = _extract_analysis_debug_rows(ai_analysis_payload["final_output"])
-                st.caption("Chapitres reçus depuis l'agent IA")
-                if debug_rows:
-                    st.dataframe(
-                        pd.DataFrame(debug_rows),
-                        width="stretch",
-                        hide_index=True,
+                st.markdown("---")
+                st.markdown("**Comparaison stylistique globale**")
+                global_analysis = _extract_global_analysis(ai_analysis_payload["final_output"])
+                if global_analysis:
+                    st.markdown(
+                        f"""
+                        <div style="
+                            margin-top: 0.2rem;
+                            padding: 1rem 1.1rem;
+                            border-left: 6px solid #b1221c;
+                            border-radius: 10px;
+                            background: rgba(255, 255, 255, 0.6);
+                            color: #1d1d1d;
+                            line-height: 1.6;
+                        ">
+                            {_analysis_text_to_html(global_analysis)}
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
                     )
                 else:
-                    st.code(ai_analysis_payload["final_output"], language="json")
+                    st.info("La comparaison stylistique globale n'a pas été trouvée dans la réponse IA.")
+            elif ai_analysis_error is not None:
+                st.warning(f"Analyse IA indisponible : {ai_analysis_error}")
 
     # -------------------------------------------------------------------------
     # Tableau récapitulatif
