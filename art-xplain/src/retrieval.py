@@ -9,6 +9,7 @@ from pathlib import Path
 # `Path` fournit une manière plus robuste et lisible de manipuler des chemins
 # que les simples chaînes de caractères.
 import hashlib
+import threading
 # `hashlib` est utilisé ici pour calculer des empreintes SHA1 de fichiers.
 # Le but n'est pas la sécurité, mais la détection fiable de deux fichiers
 # qui ont exactement le même contenu binaire.
@@ -123,6 +124,11 @@ class StyleRetriever:
         # Cela évite de recalculer plusieurs fois le hash d'un même fichier,
         # ce qui est utile lors des recherches répétées.
 
+        self._model_lock = threading.RLock()
+        # Le modèle Keras est partagé par toute la session Streamlit via le cache ressource.
+        # On sérialise donc les appels d'inférence pour éviter des corruptions d'état internes
+        # observées occasionnellement dans Keras 3 lors de reruns quasi simultanés.
+
     def _sha1_of_file(self, file_path: str | Path) -> str:
         """
         Calcule l'empreinte SHA1 d'un fichier image.
@@ -185,7 +191,8 @@ class StyleRetriever:
         img = self._load_image(image_path)
         # Prépare l'image.
 
-        emb = self.encoder(img, training=False).numpy()
+        with self._model_lock:
+            emb = self.encoder(img, training=False).numpy()
         # Passe l'image dans l'encodeur en mode inférence
         # puis convertit la sortie TensorFlow en tableau NumPy.
 
@@ -299,11 +306,12 @@ class StyleRetriever:
             try:
                 from .gradcam_similarity import GradCamPlusPlusSimilarity
 
-                self.gradcam_explainers[layer_key] = GradCamPlusPlusSimilarity(
-                    self.encoder,
-                    img_size=self.img_size,
-                    target_layer_name=target_layer_name,
-                )
+                with self._model_lock:
+                    self.gradcam_explainers[layer_key] = GradCamPlusPlusSimilarity(
+                        self.encoder,
+                        img_size=self.img_size,
+                        target_layer_name=target_layer_name,
+                    )
                 # On réutilise le même encodeur que pour le retrieval,
                 # afin que l'explication soit cohérente avec le modèle réellement utilisé.
             except Exception as exc:
@@ -313,5 +321,6 @@ class StyleRetriever:
                 ) from exc
                 # Même si Grad-CAM++ n'est pas disponible, le retrieval standard reste fonctionnel.
 
-        return self.gradcam_explainers[layer_key].explain_similarity(query_path, candidate_path)
+        with self._model_lock:
+            return self.gradcam_explainers[layer_key].explain_similarity(query_path, candidate_path)
         # Délègue le calcul à l'objet spécialisé.

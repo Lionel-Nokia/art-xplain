@@ -1,0 +1,35 @@
+```json
+{
+  "chapitres": [
+    {
+      "titre": "Contexte et spécificités stylistiques des œuvres",
+      "contenu": [
+        {
+          "titre": "Zinaida Serebriakova – \"Nude with Book\" (1940)",
+          "description": "Cette œuvre de Serebriakova, réalisée en 1940, illustre son habileté à capturer la forme humaine avec une sensibilité particulière. La figure féminine est représentée nue, assise et absorbée dans la lecture d'un livre, dégageant une sérénité profonde. L'utilisation d'une palette de couleurs chaudes et de coups de pinceau expressifs caractéristique de l'expressionnisme met en valeur la beauté naturelle du sujet. ([artchive.com](https://www.artchive.com/artwork/nude-with-book-zinaida-serebriakova-1940/?utm_source=openai))"
+        },
+        {
+          "titre": "Yiannis Moralis – \"Nude Sitting\"",
+          "description": "Yiannis Moralis, peintre grec du XXe siècle, est reconnu pour ses représentations de la figure humaine. Bien que les détails spécifiques de \"Nude Sitting\" ne soient pas disponibles, son style est généralement marqué par une abstraction géométrique et une simplification des formes, influencé par le modernisme et le cubisme."
+        },
+        {
+          "titre": "Amedeo Modigliani – \"Nude with Coral Necklace\" (1917)",
+          "description": "Modigliani a peint une série de nus entre 1916 et 1919, dont \"Nude with Coral Necklace\" en 1917. Cette œuvre présente une figure féminine allongée, caractérisée par des formes allongées et une sensualité palpable. L'influence de l'art africain est évidente dans le visage allongé et masqué, tandis que la pose rappelle des œuvres classiques comme \"La Vénus d'Urbino\" de Titien. ([britannica.com](https://www.britannica.com/art/Nude-1917?utm_source=openai))"
+        },
+        {
+          "titre": "Paul Delvaux – \"Large Nude Pink\" (1929)",
+          "description": "Paul Delvaux, peintre belge surréaliste, est connu pour ses représentations de nus féminins dans des contextes oniriques. \"Large Nude Pink\" de 1929 présente une figure féminine nue dans un environnement surréaliste, avec des éléments architecturaux et une lumière douce, créant une atmosphère mystérieuse et poétique."
+        },
+        {
+          "titre": "Rafael Zabaleta – \"Three Nude Women\" (1934)",
+          "description": "Rafael Zabaleta, peintre espagnol, est reconnu pour ses œuvres figuratives aux influences cubistes. \"Three Nude Women\" de 1934 présente trois figures féminines nues, caractérisées par des formes géométriques et une palette de couleurs vives. L'utilisation de la perspective et des volumes rappelle les travaux de Picasso, tout en conservant une touche personnelle."
+        }
+      ]
+    },
+    {
+      "titre": "Analyse de la proximité stylistique entre les artistes",
+      "contenu": "Les cinq artistes présentés partagent une exploration de la figure féminine, mais chacun avec une approche unique. Modigliani et Serebriakova privilégient des formes allongées et une sensualité palpable, tandis que Delvaux et Zabaleta intègrent des éléments surréalistes et cubistes, respectivement. Moralis, influencé par le modernisme, simplifie les formes humaines. Malgré ces différences, tous cherchent à capturer l'essence de la féminité à travers des styles distincts."
+    }
+  ]
+}
+``` 
