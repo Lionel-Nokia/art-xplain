@@ -1,5 +1,5 @@
 ai-agent:
-  ai_active: false
+  ai_active: true # false
   default_profile: comparaison_musee
 
   agent:

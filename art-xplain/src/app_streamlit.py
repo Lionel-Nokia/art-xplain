@@ -295,6 +295,33 @@ def _extract_chapters_payload(final_output: str) -> list[dict[str, object]] | No
     return None
 
 
+def _extract_analysis_debug_rows(final_output: str) -> list[dict[str, str]]:
+    """
+    Prépare un aperçu de debug des chapitres reçus depuis l'agent IA.
+    """
+    chapters = _extract_chapters_payload(final_output)
+    if chapters is None:
+        return []
+
+    debug_rows: list[dict[str, str]] = []
+    for idx, chapter in enumerate(chapters):
+        if not isinstance(chapter, dict):
+            continue
+        chapter_title = str(chapter.get("titre", "")).strip()
+        chapter_artist, chapter_artwork = _split_analysis_title(chapter_title)
+        debug_rows.append(
+            {
+                "rang_ia": str(idx + 1),
+                "titre_chapitre": chapter_title,
+                "artiste_ia": chapter_artist,
+                "tableau_ia": chapter_artwork,
+                "titre_normalise": _normalize_lookup_text(chapter_artwork),
+            }
+        )
+
+    return debug_rows
+
+
 def _match_artwork_analysis(
     final_output: str,
     artist: str,
@@ -1781,6 +1808,36 @@ if retriever is not None:
                 st.info("La comparaison stylistique globale n'a pas été trouvée dans la réponse IA.")
         elif ai_analysis_error is not None:
             st.warning(f"Comparaison stylistique globale indisponible : {ai_analysis_error}")
+
+        if ai_analysis_payload is not None:
+            with st.expander("Debug analyse IA", expanded=False):
+                st.caption("Oeuvres affichées dans l'application")
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "rang_resultat": row["rang"],
+                                "artiste_app": row["artiste"],
+                                "tableau_app": row["tableau"],
+                                "tableau_normalise": _normalize_lookup_text(row["tableau"]),
+                            }
+                            for row in rows
+                        ]
+                    ),
+                    width="stretch",
+                    hide_index=True,
+                )
+
+                debug_rows = _extract_analysis_debug_rows(ai_analysis_payload["final_output"])
+                st.caption("Chapitres reçus depuis l'agent IA")
+                if debug_rows:
+                    st.dataframe(
+                        pd.DataFrame(debug_rows),
+                        width="stretch",
+                        hide_index=True,
+                    )
+                else:
+                    st.code(ai_analysis_payload["final_output"], language="json")
 
     # -------------------------------------------------------------------------
     # Tableau récapitulatif
