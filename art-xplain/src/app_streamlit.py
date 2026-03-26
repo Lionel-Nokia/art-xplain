@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import sys
 import atexit
+import asyncio
 import json
+import unicodedata
+from html import escape
 # Module standard donnant accès à des informations et réglages liés à l'interpréteur Python.
 # Ici, il sert surtout à manipuler sys.path, c'est-à-dire la liste des dossiers
 # dans lesquels Python cherche les modules à importer.
@@ -78,6 +81,14 @@ from src.retrieval import StyleRetriever
 # - l'extraction d'embeddings,
 # - la comparaison de similarité,
 # - et éventuellement Grad-CAM.
+
+try:
+    from src.ia_agent import run_analysis
+except Exception as exc:
+    run_analysis = None
+    IA_AGENT_IMPORT_ERROR = exc
+else:
+    IA_AGENT_IMPORT_ERROR = None
 
 
 # =============================================================================
@@ -174,6 +185,226 @@ def _is_unknown_metadata(value: object) -> bool:
     Détecte les métadonnées inutilisables pour le stockage.
     """
     return str(value).strip().lower() == "inconnu"
+
+
+def _normalize_lookup_text(value: object) -> str:
+    """
+    Normalise un texte pour des comparaisons souples.
+    """
+    text = str(value).strip().lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    for char in ["-", "_", "/", ",", ":", ";", ".", "(", ")", "'", '"']:
+        text = text.replace(char, " ")
+    return " ".join(text.split())
+
+
+def _match_normalized_text(expected: str, candidate: str) -> bool:
+    """
+    Compare deux textes normalisés avec une logique souple.
+    """
+    if not expected or not candidate:
+        return False
+
+    if expected == candidate:
+        return True
+
+    if expected in candidate or candidate in expected:
+        return True
+
+    expected_tokens = expected.split()
+    candidate_tokens = candidate.split()
+    if expected_tokens and all(token in candidate_tokens for token in expected_tokens):
+        return True
+
+    return False
+
+
+def _format_analysis_text(value: object) -> str:
+    """
+    Convertit une structure JSON en texte lisible.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, list):
+        parts = [_format_analysis_text(item) for item in value]
+        return "\n".join(part for part in parts if part)
+    if isinstance(value, dict):
+        parts = []
+        for key, item in value.items():
+            item_text = _format_analysis_text(item)
+            if item_text:
+                parts.append(f"{key} : {item_text}")
+        return "\n".join(parts)
+    return str(value).strip()
+
+
+def _split_analysis_title(title: object) -> tuple[str, str]:
+    """
+    Extrait artiste et tableau depuis un titre de chapitre `Artiste - Tableau`.
+    """
+    title_text = str(title).strip()
+    if " - " not in title_text:
+        return "", title_text
+    artist, artwork = title_text.split(" - ", 1)
+    return artist.strip(), artwork.strip()
+
+
+def _format_chapter_content(chapter_content: object) -> str:
+    """
+    Formate le contenu d'un chapitre en concaténant `sous_titre` et `texte`.
+    """
+    if not isinstance(chapter_content, list):
+        return _format_analysis_text(chapter_content)
+
+    blocks: list[str] = []
+    for item in chapter_content:
+        if isinstance(item, dict):
+            subtitle = str(item.get("sous_titre", "")).strip()
+            text = str(item.get("texte", "")).strip()
+            if subtitle and text:
+                blocks.append(f"{subtitle}\n{text}")
+            elif subtitle:
+                blocks.append(subtitle)
+            elif text:
+                blocks.append(text)
+        else:
+            text = _format_analysis_text(item)
+            if text:
+                blocks.append(text)
+
+    return "\n\n".join(block for block in blocks if block)
+
+
+def _extract_chapters_payload(final_output: str) -> list[dict[str, object]] | None:
+    """
+    Relit le JSON et retourne la liste des chapitres si présente.
+    """
+    try:
+        payload = json.loads(final_output)
+    except json.JSONDecodeError:
+        return None
+
+    if isinstance(payload, dict):
+        chapters = payload.get("chapitres")
+        if isinstance(chapters, list):
+            return chapters
+
+    return None
+
+
+def _match_artwork_analysis(
+    final_output: str,
+    artist: str,
+    title: str,
+    result_index: int | None = None,
+) -> str | None:
+    """
+    Retrouve le meilleur fragment d'analyse pour une oeuvre donnée.
+    """
+    chapters = _extract_chapters_payload(final_output)
+    title_key = _normalize_lookup_text(title)
+    artist_key = _normalize_lookup_text(artist)
+    if chapters is not None:
+        for chapter in chapters:
+            if not isinstance(chapter, dict):
+                continue
+            chapter_artist, chapter_title = _split_analysis_title(chapter.get("titre", ""))
+            if (
+                _match_normalized_text(artist_key, _normalize_lookup_text(chapter_artist))
+                and _match_normalized_text(title_key, _normalize_lookup_text(chapter_title))
+            ):
+                return _format_chapter_content(chapter.get("contenu", []))
+
+        if result_index is not None:
+            artwork_chapters = []
+            for chapter in chapters:
+                if not isinstance(chapter, dict):
+                    continue
+                chapter_title = _normalize_lookup_text(chapter.get("titre", ""))
+                if "proximite stylistique" in chapter_title:
+                    continue
+                artwork_chapters.append(chapter)
+
+            if 0 <= result_index < len(artwork_chapters):
+                return _format_chapter_content(artwork_chapters[result_index].get("contenu", []))
+
+    return None
+
+
+def _extract_global_analysis(final_output: str) -> str | None:
+    """
+    Retrouve la section de comparaison stylistique globale.
+    """
+    chapters = _extract_chapters_payload(final_output)
+    if chapters is not None:
+        for chapter in chapters:
+            if not isinstance(chapter, dict):
+                continue
+            chapter_title = _normalize_lookup_text(chapter.get("titre", ""))
+            if "proximite stylistique" in chapter_title:
+                return _format_chapter_content(chapter.get("contenu", []))
+
+    return None
+
+
+def _run_async_analysis_sync(candidates_df: pd.DataFrame, artwork_of_interest: str) -> dict[str, str]:
+    """
+    Exécute l'analyse async dans un contexte synchrone Streamlit.
+    """
+    if run_analysis is None:
+        if IA_AGENT_IMPORT_ERROR is not None:
+            raise RuntimeError(f"Import ia_agent impossible : {IA_AGENT_IMPORT_ERROR}")
+        raise RuntimeError("Le module ia_agent n'est pas disponible.")
+
+    def _build_coroutine():
+        return run_analysis(
+            df=candidates_df,
+            artwork_of_interest=artwork_of_interest,
+            config_path=str(PROJECT_ROOT / "config" / "config_agent.yaml"),
+            profile_name="comparaison_musee",
+            output_folder=str(PROJECT_ROOT / "outputs"),
+        )
+
+    try:
+        analysis = asyncio.run(_build_coroutine())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            analysis = loop.run_until_complete(_build_coroutine())
+        finally:
+            loop.close()
+
+    final_output = str(analysis["result"].final_output).strip()
+    return {
+        "final_output": final_output,
+        "output_path": str(analysis.get("output_path", "")),
+    }
+
+
+@st.cache_data(show_spinner=False)
+def _get_cached_ai_analysis(candidates_json: str, artwork_of_interest: str) -> dict[str, str]:
+    """
+    Met en cache l'analyse OpenAI pour éviter les relances inutiles.
+    """
+    candidates_df = pd.DataFrame(json.loads(candidates_json))
+    return _run_async_analysis_sync(candidates_df, artwork_of_interest)
+
+
+@st.cache_data(show_spinner=False)
+def _is_ai_agent_enabled() -> bool:
+    """
+    Lit le flag d'activation de l'agent IA depuis la configuration.
+    """
+    try:
+        config = load_config("config/config_agent.yaml")
+    except Exception:
+        return False
+
+    ai_config = config.get("ai-agent", {})
+    return bool(ai_config.get("ai_active", True))
 
 
 def _load_internal_dataframe() -> pd.DataFrame:
@@ -1377,6 +1608,60 @@ if retriever is not None:
     # Affiche le style du meilleur résultat en gras grâce au Markdown.
     # best['style'] est supposé provenir du moteur de retrieval.
 
+    rows = []
+    # Prépare une structure unique réutilisée par l'affichage, le résumé et l'analyse IA.
+
+    for i, res in enumerate(results):
+        artist, title = _extract_artist_and_title(res["filepath"])
+        rows.append(
+            {
+                "rang": i + 1,
+                "artiste": artist,
+                "tableau": title,
+                "style": res["style"],
+                "similarité": round(float(res["similarity"]), 4),
+                "fichier": Path(str(res["filepath"])).name,
+                "chemin": str(res["filepath"]),
+            }
+        )
+
+    df_results = pd.DataFrame(rows)
+    # Transforme la liste de dictionnaires en tableau structuré Pandas.
+
+    _update_internal_dataframe_from_results(df_results, source_artist, source_title)
+    # Alimente le DataFrame interne avec les artistes absents du stockage local.
+
+    ai_agent_enabled = _is_ai_agent_enabled()
+
+    show_ai_analyses = False
+    if ai_agent_enabled:
+        show_ai_analyses = st.checkbox(
+            "Afficher les analyses IA sous les tableaux",
+            value=True,
+            key="show_ai_analyses",
+        )
+
+    ai_analysis_payload: dict[str, str] | None = None
+    ai_analysis_error: str | None = None
+    artwork_of_interest = " ".join(
+        part for part in [str(source_artist).strip(), str(source_title).strip()] if part
+    )
+
+    candidates_df = pd.DataFrame(
+        [
+            {"Artiste": row["artiste"], "Titre": row["tableau"], "Année": None}
+            for row in rows
+        ]
+    )
+
+    if ai_agent_enabled and not candidates_df.empty:
+        candidates_json = json.dumps(candidates_df.to_dict(orient="records"), ensure_ascii=False)
+        try:
+            with st.spinner("Génération des analyses IA..."):
+                ai_analysis_payload = _get_cached_ai_analysis(candidates_json, artwork_of_interest)
+        except Exception as exc:
+            ai_analysis_error = str(exc)
+
     # -------------------------------------------------------------------------
     # Affichage des résultats visuels
     # -------------------------------------------------------------------------
@@ -1437,53 +1722,71 @@ if retriever is not None:
             # Le titre devient cliquable : un clic relance la recherche
             # avec cette œuvre comme nouvelle image source.
 
+            if show_ai_analyses:
+                if ai_analysis_payload is not None:
+                    artwork_analysis = _match_artwork_analysis(
+                        ai_analysis_payload["final_output"],
+                        artist,
+                        title,
+                        i,
+                    )
+                    if artwork_analysis:
+                        st.markdown(
+                            f"""
+                            <div style="
+                                margin-top: 0.75rem;
+                                padding: 0.9rem 1rem;
+                                border: 1px solid rgba(17, 17, 17, 0.1);
+                                border-radius: 10px;
+                                background: rgba(246, 243, 238, 0.72);
+                                color: #1d1d1d;
+                                line-height: 1.55;
+                                font-size: 0.92rem;
+                                white-space: pre-wrap;
+                            ">
+                                <strong>Analyse IA</strong><br>
+                                {escape(artwork_analysis)}
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.caption("Analyse IA non trouvée pour cette œuvre.")
+                elif ai_analysis_error is not None:
+                    st.caption(f"Analyse IA indisponible : {ai_analysis_error}")
+
+    if ai_agent_enabled:
+        st.subheader("Comparaison stylistique globale")
+        if ai_analysis_payload is not None:
+            global_analysis = _extract_global_analysis(ai_analysis_payload["final_output"])
+            if global_analysis:
+                st.markdown(
+                    f"""
+                    <div style="
+                        margin-top: 0.2rem;
+                        padding: 1rem 1.1rem;
+                        border-left: 6px solid #b1221c;
+                        border-radius: 10px;
+                        background: rgba(246, 243, 238, 0.82);
+                        color: #1d1d1d;
+                        line-height: 1.6;
+                        white-space: pre-wrap;
+                    ">
+                        {escape(global_analysis)}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.info("La comparaison stylistique globale n'a pas été trouvée dans la réponse IA.")
+        elif ai_analysis_error is not None:
+            st.warning(f"Comparaison stylistique globale indisponible : {ai_analysis_error}")
+
     # -------------------------------------------------------------------------
     # Tableau récapitulatif
     # -------------------------------------------------------------------------
     st.subheader("Résumé des résultats")
     # Introduit la section tabulaire.
-
-    rows = []
-    # Cette liste va contenir un dictionnaire par résultat.
-    # Elle sera ensuite convertie en DataFrame Pandas.
-
-    for i, res in enumerate(results):
-        artist, title = _extract_artist_and_title(res["filepath"])
-        # Réutilise l'extraction artiste/titre pour enrichir le tableau.
-        # Cela évite de dupliquer une logique de parsing ailleurs dans le code
-        # et garantit une présentation cohérente entre cartes visuelles et tableau.
-
-        rows.append(
-            {
-                "rang": i + 1,
-                # Position du résultat dans le classement.
-
-                "artiste": artist,
-                # Nom de l'artiste extrait du nom de fichier.
-
-                "tableau": title,
-                # Titre de l'œuvre extrait du nom de fichier.
-
-                "style": res["style"],
-                # Style associé au résultat.
-
-                "similarité": round(float(res["similarity"]), 4),
-                # Score de similarité converti explicitement en float puis arrondi à 4 décimales.
-                # Le float(...) garantit un type affichable même si similarity est un scalaire NumPy.
-
-                "fichier": Path(str(res["filepath"])).name,
-                # Ne garde que le nom du fichier (sans le dossier).
-
-                "chemin": str(res["filepath"]),
-                # Garde aussi le chemin complet, utile pour debug ou inspection.
-            }
-        )
-
-    df_results = pd.DataFrame(rows)
-    # Transforme la liste de dictionnaires en tableau structuré Pandas.
-
-    _update_internal_dataframe_from_results(df_results, source_artist, source_title)
-    # Alimente le DataFrame interne avec les artistes absents du stockage local.
 
     st.dataframe(df_results, width="stretch", hide_index=True)
     # Affiche le DataFrame dans Streamlit.

@@ -111,6 +111,12 @@ Fichier généré:
 make run
 ```
 
+L'application peut afficher une analyse IA complémentaire pour chaque tableau similaire :
+- les œuvres retournées par le moteur servent d'entrée à `art-xplain/src/ia_agent.py` ;
+- un cartouche d'analyse apparaît sous chaque tableau quand la case `Afficher les analyses IA sous les tableaux` est cochée ;
+- la comparaison stylistique globale reste affichée même si cette case est décochée.
+- le paramètre `ai-agent.ai_active` dans `art-xplain/config/config_agent.yaml` permet de désactiver complètement l'appel à l'agent IA et tous les affichages associés.
+
 ### Persistance du tableau récapitulatif
 
 L'application Streamlit conserve maintenant un DataFrame interne alimenté à partir du `Tableau récapitulatif` de chaque requête.

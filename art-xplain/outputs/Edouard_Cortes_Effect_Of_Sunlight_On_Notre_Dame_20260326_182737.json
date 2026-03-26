@@ -1,0 +1,77 @@
+```json
+{
+  "chapitres": [
+    {
+      "titre": "Albert Marquet - Ferme à La Percaillerie (Normandie), 1901",
+      "contenu": [
+        {
+          "sous_titre": "Contexte historique et stylistique",
+          "texte": "Albert Marquet (1875–1947) était un peintre français associé au mouvement fauviste. Après une période d'expressionnisme coloré, il adopte un style plus naturaliste, privilégiant des tons plus doux et une approche plus réaliste. 'Ferme à La Percaillerie' illustre son intérêt pour les paysages de la Normandie, capturant la tranquillité de la campagne française. ([paintingmania.com](https://www.paintingmania.com/farmyard-la-percaillerie-normandy-256_50238.html?utm_source=openai))"
+        },
+        {
+          "sous_titre": "Spécificités techniques",
+          "texte": "Marquet utilise une palette de couleurs terreuses, dominée par des bruns, des jaunes et des verts, pour représenter la scène rurale. Les coups de pinceau sont visibles, conférant une texture et une profondeur à l'œuvre. La lumière diffuse suggère une scène de jour paisible, avec des ombres subtiles ajoutant de la profondeur aux bâtiments et aux arbres. ([app.fta.art](https://app.fta.art/artwork/046780aebeaf8e2a837c3a491a5254a4d524ae05?utm_source=openai))"
+        }
+      ]
+    },
+    {
+      "titre": "Vincent van Gogh - Un groupe de chaumières, 1890",
+      "contenu": [
+        {
+          "sous_titre": "Contexte historique et stylistique",
+          "texte": "Vincent van Gogh (1853–1890) était un peintre post-impressionniste néerlandais dont le travail a eu une influence majeure sur l'art du XXe siècle. 'Un groupe de chaumières' est une œuvre réalisée en 1890 à Saint-Rémy-de-Provence, France, représentant une scène rurale avec des cottages traditionnels. ([artchive.com](https://www.artchive.com/artwork/a-group-of-cottages-vincent-van-gogh-1890-saint-remy-de-provence-france/?utm_source=openai))"
+        },
+        {
+          "sous_titre": "Spécificités techniques",
+          "texte": "Van Gogh utilise des coups de pinceau expressifs et dynamiques pour représenter les cottages et le paysage environnant. La palette de couleurs est riche, avec des verts luxuriants contrastant avec des bleus profonds et des tons terreux. L'application épaisse de la peinture ajoute de la profondeur et de la dimension à la composition. ([artchive.com](https://www.artchive.com/artwork/a-group-of-cottages-vincent-van-gogh-1890-saint-remy-de-provence-france/?utm_source=openai))"
+        }
+      ]
+    },
+    {
+      "titre": "Pyotr Konchalovsky - Cavaliers de Peterhof, savon, 1931",
+      "contenu": [
+        {
+          "sous_titre": "Contexte historique et stylistique",
+          "texte": "Pyotr Konchalovsky (1876–1956) était un peintre russe influent, connu pour ses paysages et ses natures mortes. 'Cavaliers de Peterhof, savon' est une œuvre de 1931 qui reflète son intérêt pour la représentation réaliste de la vie quotidienne en Russie."
+        },
+        {
+          "sous_titre": "Spécificités techniques",
+          "texte": "Konchalovsky utilise des couleurs riches et une lumière douce pour créer une atmosphère intime. Les détails sont rendus avec précision, témoignant de son habileté technique et de son attention aux nuances subtiles de la scène."
+        }
+      ]
+    },
+    {
+      "titre": "Martiros Saryan - Juillet, 1937",
+      "contenu": [
+        {
+          "sous_titre": "Contexte historique et stylistique",
+          "texte": "Martiros Saryan (1880–1972) était un peintre arménien renommé, connu pour ses paysages et ses scènes de genre. 'Juillet' est une œuvre de 1937 qui capture la chaleur et la lumière de l'été arménien."
+        },
+        {
+          "sous_titre": "Spécificités techniques",
+          "texte": "Saryan utilise des couleurs vives et saturées pour représenter la lumière intense de l'été. Les formes sont simplifiées, avec des contours nets, reflétant son style distinctif influencé par le fauvisme et l'expressionnisme."
+        }
+      ]
+    },
+    {
+      "titre": "Édouard Cortès - Effet de la lumière du soleil sur Notre-Dame",
+      "contenu": [
+        {
+          "sous_titre": "Contexte historique et stylistique",
+          "texte": "Édouard Cortès (1882–1969) était un peintre français, connu pour ses scènes urbaines et ses vues de Paris. 'Effet de la lumière du soleil sur Notre-Dame' est une œuvre qui capture la majesté de la cathédrale sous la lumière changeante du soleil."
+        },
+        {
+          "sous_titre": "Spécificités techniques",
+          "texte": "Cortès utilise des coups de pinceau fluides et une palette de couleurs chaudes pour représenter la lumière du soleil. Les détails architecturaux de Notre-Dame sont rendus avec précision, tandis que l'atmosphère générale est lumineuse et vibrante."
+        }
+      ]
+    },
+    {
+      "titre": "Analyse de la proximité stylistique entre les artistes",
+      "contenu": [
+        "Les cinq artistes partagent un intérêt pour la représentation de scènes quotidiennes et de paysages, souvent en plein air. Marquet, Van Gogh, Konchalovsky, Saryan et Cortès utilisent des palettes de couleurs riches et des coups de pinceau expressifs pour capturer la lumière et l'atmosphère de leurs sujets. Bien que leurs styles individuels varient, notamment en fonction de leurs influences culturelles et des mouvements artistiques auxquels ils ont appartenu, ils ont tous cherché à transmettre une émotion et une vivacité à travers leurs œuvres."
+      ]
+    }
+  ]
+}
+``` 
