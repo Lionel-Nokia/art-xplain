@@ -8,6 +8,8 @@ from __future__ import annotations
 # 3) garder un code plus lisible avec les hints modernes.
 
 import sys
+import atexit
+import json
 # Module standard donnant accès à des informations et réglages liés à l'interpréteur Python.
 # Ici, il sert surtout à manipuler sys.path, c'est-à-dire la liste des dossiers
 # dans lesquels Python cherche les modules à importer.
@@ -65,7 +67,7 @@ if str(PROJECT_ROOT) not in sys.path:
 # pour s'assurer que les imports internes comme src.utils et src.retrieval fonctionnent.
 # Le test préalable évite d'ajouter plusieurs fois le même chemin.
 
-from src.utils import load_config, resolve_project_path, resolve_stored_path
+from src.utils import ensure_dir, load_config, resolve_project_path, resolve_stored_path
 # Importe une fonction utilitaire interne censée charger la configuration du projet.
 # On l'utilise plus loin pour récupérer les chemins vers les embeddings et autres ressources.
 
@@ -84,6 +86,9 @@ from src.retrieval import StyleRetriever
 
 ASSETS_DIR = PROJECT_ROOT / "assets"
 APP_LOGO_PATH = ASSETS_DIR / "artxplain-logo.svg"
+INTERNAL_DF_DIR = PROJECT_ROOT / "data"
+INTERNAL_DF_PATH = INTERNAL_DF_DIR / "internal_artworks.csv"
+INTERNAL_DF_COLUMNS = ["artiste", "tableau", "style", "fichier", "analyse", "similarite"]
 
 
 def _load_inline_svg(svg_path: Path) -> str:
@@ -94,6 +99,255 @@ def _load_inline_svg(svg_path: Path) -> str:
         return svg_path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return ""
+
+
+def _empty_internal_dataframe() -> pd.DataFrame:
+    """
+    Construit le DataFrame interne avec son schéma cible.
+    """
+    return pd.DataFrame(columns=INTERNAL_DF_COLUMNS)
+
+
+def _normalize_internal_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Garantit la présence et l'ordre des colonnes attendues.
+    """
+    normalized = df.copy()
+    for column in INTERNAL_DF_COLUMNS:
+        if column not in normalized.columns:
+            normalized[column] = ""
+
+    normalized = normalized[INTERNAL_DF_COLUMNS].fillna("")
+    if "similarite" in normalized.columns:
+        normalized["similarite"] = normalized["similarite"].apply(_normalize_similarity_json)
+    return normalized.astype(str)
+
+
+def _normalize_similarity_json(value: object) -> str:
+    """
+    Convertit la colonne similarite en JSON texte stable.
+    """
+    if value is None:
+        return "[]"
+
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+
+    text = str(value).strip()
+    if not text:
+        return "[]"
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return "[]"
+
+    if not isinstance(parsed, list):
+        return "[]"
+
+    return json.dumps(parsed, ensure_ascii=False)
+
+
+def _parse_similarity_json(value: object) -> list[dict[str, object]]:
+    """
+    Relit l'historique JSON de similarité pour une ligne.
+    """
+    normalized = _normalize_similarity_json(value)
+
+    try:
+        parsed = json.loads(normalized)
+    except json.JSONDecodeError:
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    cleaned_history: list[dict[str, object]] = []
+    for item in parsed:
+        if isinstance(item, dict):
+            cleaned_history.append(item)
+    return cleaned_history
+
+
+def _is_unknown_metadata(value: object) -> bool:
+    """
+    Détecte les métadonnées inutilisables pour le stockage.
+    """
+    return str(value).strip().lower() == "inconnu"
+
+
+def _load_internal_dataframe() -> pd.DataFrame:
+    """
+    Relit le DataFrame interne depuis le disque au démarrage.
+    """
+    if not INTERNAL_DF_PATH.exists():
+        return _empty_internal_dataframe()
+
+    try:
+        loaded = pd.read_csv(INTERNAL_DF_PATH)
+        return _normalize_internal_dataframe(loaded)
+    except Exception:
+        return _empty_internal_dataframe()
+
+
+def _save_internal_dataframe(df: pd.DataFrame) -> None:
+    """
+    Sauvegarde le DataFrame interne sur le disque.
+    """
+    ensure_dir(INTERNAL_DF_DIR)
+    _normalize_internal_dataframe(df).to_csv(INTERNAL_DF_PATH, index=False)
+
+
+def _register_internal_dataframe_shutdown_hook() -> None:
+    """
+    Sauvegarde de secours à l'arrêt du processus Streamlit.
+    """
+    if st.session_state.get("_internal_dataframe_shutdown_hook_registered"):
+        return
+
+    def _persist_on_exit() -> None:
+        df = st.session_state.get("internal_artworks_df")
+        if isinstance(df, pd.DataFrame):
+            try:
+                _save_internal_dataframe(df)
+            except Exception:
+                pass
+
+    atexit.register(_persist_on_exit)
+    st.session_state["_internal_dataframe_shutdown_hook_registered"] = True
+
+
+def _initialize_internal_dataframe() -> None:
+    """
+    Charge le DataFrame interne une seule fois par session Streamlit.
+    """
+    if "internal_artworks_df" not in st.session_state:
+        st.session_state["internal_artworks_df"] = _load_internal_dataframe()
+
+    _register_internal_dataframe_shutdown_hook()
+
+
+def _update_internal_dataframe_from_results(
+    df_results: pd.DataFrame,
+    source_artist: str,
+    source_title: str,
+) -> pd.DataFrame:
+    """
+    Ajoute les artistes absents du DataFrame interne et historise les similarités.
+    """
+    internal_df = _normalize_internal_dataframe(st.session_state["internal_artworks_df"])
+
+    if _is_unknown_metadata(source_artist) or _is_unknown_metadata(source_title):
+        st.session_state["internal_artworks_df"] = internal_df
+        return internal_df
+
+    source_df = (
+        df_results.loc[:, ["artiste", "tableau", "style", "fichier", "similarité"]]
+        .copy()
+        .fillna("")
+        .astype(str)
+    )
+    source_df = source_df[
+        ~source_df["artiste"].apply(_is_unknown_metadata)
+        & ~source_df["tableau"].apply(_is_unknown_metadata)
+    ].copy()
+    source_df["analyse"] = ""
+    source_df["similarite"] = "[]"
+    source_df = source_df.rename(columns={"similarité": "similarite_courante"})
+
+    if source_df.empty:
+        st.session_state["internal_artworks_df"] = internal_df
+        return internal_df
+
+    existing_pairs = set(
+        zip(
+            internal_df["artiste"].astype(str).str.strip(),
+            internal_df["tableau"].astype(str).str.strip(),
+        )
+    )
+    existing_keys = set(
+        zip(
+            internal_df["artiste"].astype(str).str.strip(),
+            internal_df["tableau"].astype(str).str.strip(),
+            internal_df["fichier"].astype(str).str.strip(),
+        )
+    )
+    source_df["pair_key"] = list(
+        zip(
+            source_df["artiste"].astype(str).str.strip(),
+            source_df["tableau"].astype(str).str.strip(),
+        )
+    )
+
+    rows_to_add = source_df[~source_df["pair_key"].isin(existing_pairs)].copy()
+
+    if not rows_to_add.empty:
+        rows_to_add["similarite"] = rows_to_add["similarite_courante"].apply(
+            lambda similarity: json.dumps(
+                [
+                    {
+                        "artiste_source": source_artist,
+                        "tableau_source": source_title,
+                        "similarite": float(similarity),
+                    }
+                ],
+                ensure_ascii=False,
+            )
+        )
+        rows_to_add = rows_to_add[INTERNAL_DF_COLUMNS]
+        internal_df = pd.concat([internal_df, rows_to_add], ignore_index=True)
+
+    results_by_key = {
+        (
+            str(row["artiste"]).strip(),
+            str(row["tableau"]).strip(),
+            str(row["fichier"]).strip(),
+        ): float(row["similarite_courante"])
+        for _, row in source_df.iterrows()
+    }
+
+    source_signature = (
+        str(source_artist).strip(),
+        str(source_title).strip(),
+    )
+
+    for idx, row in internal_df.iterrows():
+        key = (
+            str(row["artiste"]).strip(),
+            str(row["tableau"]).strip(),
+            str(row["fichier"]).strip(),
+        )
+        if key not in existing_keys:
+            continue
+        similarity_value = results_by_key.get(key)
+        if similarity_value is None:
+            continue
+
+        history = _parse_similarity_json(row["similarite"])
+        history_signatures = {
+            (
+                str(item.get("artiste_source", "")).strip(),
+                str(item.get("tableau_source", "")).strip(),
+            )
+            for item in history
+        }
+        if source_signature in history_signatures:
+            continue
+
+        history.append(
+            {
+                "artiste_source": source_artist,
+                "tableau_source": source_title,
+                "similarite": similarity_value,
+            }
+        )
+        internal_df.at[idx, "similarite"] = json.dumps(history, ensure_ascii=False)
+
+    internal_df = _normalize_internal_dataframe(internal_df)
+    st.session_state["internal_artworks_df"] = internal_df
+    _save_internal_dataframe(internal_df)
+
+    return st.session_state["internal_artworks_df"]
 
 st.set_page_config(page_title="Art-Xplain", layout="wide")
 # Configure la page Streamlit avant tout rendu visuel important.
@@ -387,6 +641,8 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+_initialize_internal_dataframe()
 
 
 # =============================================================================
@@ -1225,6 +1481,9 @@ if retriever is not None:
 
     df_results = pd.DataFrame(rows)
     # Transforme la liste de dictionnaires en tableau structuré Pandas.
+
+    _update_internal_dataframe_from_results(df_results, source_artist, source_title)
+    # Alimente le DataFrame interne avec les artistes absents du stockage local.
 
     st.dataframe(df_results, width="stretch", hide_index=True)
     # Affiche le DataFrame dans Streamlit.

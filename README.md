@@ -111,6 +111,31 @@ Fichier généré:
 make run
 ```
 
+### Persistance du tableau récapitulatif
+
+L'application Streamlit conserve maintenant un DataFrame interne alimenté à partir du `Tableau récapitulatif` de chaque requête.
+
+Colonnes stockées :
+- `artiste`
+- `tableau`
+- `style`
+- `fichier`
+- `analyse`
+- `similarite`
+
+Fonctionnement :
+- à chaque requête, le tableau récapitulatif des résultats est converti en lignes candidates ;
+- si l'artiste ou le tableau de l'image source vaut `Inconnu`, rien n'est stocké pour cette requête ;
+- les résultats dont `artiste` ou `tableau` vaut `Inconnu` ne sont pas ajoutés au DataFrame interne ;
+- une œuvre n'est ajoutée que si le couple `artiste` + `tableau` n'existe pas déjà dans le DataFrame interne ;
+- la colonne `analyse` est créée mais reste vide pour l'instant ;
+- la colonne `similarite` contient un JSON listant l'historique des comparaisons pour chaque tableau ;
+- chaque entrée JSON stocke `artiste_source`, `tableau_source` et `similarite` pour la requête courante ;
+- une entrée de similarité n'est ajoutée que si cette même image source n'est pas déjà présente dans l'historique du tableau ;
+- au démarrage de l'application, le DataFrame est relu depuis `data/internal_artworks.csv` ;
+- à l'arrêt du programme, une sauvegarde est effectuée sur ce même fichier ;
+- une sauvegarde est aussi faite à chaque mise à jour du DataFrame, afin d'éviter toute perte en cours de session.
+
 ### Pipeline complet en une commande
 
 ```bash
