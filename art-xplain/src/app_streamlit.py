@@ -373,6 +373,7 @@ st.markdown(
 
     html, body, [class*="css"] {
         font-family: var(--museum-font);
+        color-scheme: light;
     }
 
     .stApp {
@@ -393,6 +394,7 @@ st.markdown(
     [data-testid="block-container"] {
         padding-top: 2.5rem;
         padding-bottom: 4rem;
+        max-width: 1200px;
     }
 
     h1, h2, h3 {
@@ -558,24 +560,112 @@ st.markdown(
         border-style: dashed !important;
     }
 
-    div[data-testid="stButton"] > button {
+    [data-testid="stFileUploader"] button,
+    [data-testid="stFileUploaderDropzone"] button,
+    [data-testid="stFileUploader"] section button {
+        -webkit-appearance: none !important;
+        appearance: none !important;
+        -webkit-tap-highlight-color: transparent;
+        border-radius: 999px !important;
+        border: 1px solid rgba(177, 34, 28, 0.22) !important;
+        background-color: rgba(255, 255, 255, 0.92) !important;
+        background-image: none !important;
+        background: rgba(255, 255, 255, 0.92) !important;
+        color: var(--museum-accent) !important;
+        -webkit-text-fill-color: var(--museum-accent) !important;
+        box-shadow: none !important;
+        filter: none !important;
+        opacity: 1 !important;
+    }
+
+    [data-testid="stFileUploader"] button:hover,
+    [data-testid="stFileUploader"] button:focus,
+    [data-testid="stFileUploader"] button:focus-visible,
+    [data-testid="stFileUploader"] button:active,
+    [data-testid="stFileUploaderDropzone"] button:hover,
+    [data-testid="stFileUploaderDropzone"] button:focus,
+    [data-testid="stFileUploaderDropzone"] button:focus-visible,
+    [data-testid="stFileUploaderDropzone"] button:active,
+    [data-testid="stFileUploader"] section button:hover,
+    [data-testid="stFileUploader"] section button:focus,
+    [data-testid="stFileUploader"] section button:focus-visible,
+    [data-testid="stFileUploader"] section button:active {
+        border-color: rgba(177, 34, 28, 0.34) !important;
+        background-color: rgba(177, 34, 28, 0.08) !important;
+        background-image: none !important;
+        background: rgba(177, 34, 28, 0.08) !important;
+        color: var(--museum-accent) !important;
+        -webkit-text-fill-color: var(--museum-accent) !important;
+        box-shadow: none !important;
+        outline: none !important;
+    }
+
+    div[data-testid="stButton"] > button,
+    button[data-testid^="stBaseButton"],
+    button[kind="secondary"],
+    [data-baseweb="button"] {
+        -webkit-appearance: none;
+        appearance: none;
+        -webkit-tap-highlight-color: transparent;
         width: 100%;
+        display: flex;
+        align-items: center;
         justify-content: flex-start;
         text-align: left;
         border-radius: 4px;
-        border: 1px solid rgba(17, 17, 17, 0.1);
-        background: rgba(255, 255, 255, 0.72);
-        color: var(--museum-ink);
+        border: 1px solid rgba(17, 17, 17, 0.1) !important;
+        background-color: rgba(255, 255, 255, 0.72) !important;
+        background-image: none !important;
+        background: rgba(255, 255, 255, 0.72) !important;
+        color: var(--museum-ink) !important;
+        -webkit-text-fill-color: var(--museum-ink) !important;
         padding: 0.28rem 0.5rem;
         min-height: 1.7rem;
-        box-shadow: none;
+        box-shadow: none !important;
+        opacity: 1 !important;
+        filter: none !important;
+        -webkit-box-shadow: none !important;
+        -webkit-border-image: none !important;
         transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
     }
 
-    div[data-testid="stButton"] > button:hover {
+    div[data-testid="stButton"] > button:hover,
+    div[data-testid="stButton"] > button:focus,
+    div[data-testid="stButton"] > button:focus-visible,
+    div[data-testid="stButton"] > button:active,
+    button[data-testid^="stBaseButton"]:hover,
+    button[data-testid^="stBaseButton"]:focus,
+    button[data-testid^="stBaseButton"]:focus-visible,
+    button[data-testid^="stBaseButton"]:active,
+    button[kind="secondary"]:hover,
+    button[kind="secondary"]:focus,
+    button[kind="secondary"]:focus-visible,
+    button[kind="secondary"]:active,
+    [data-baseweb="button"]:hover,
+    [data-baseweb="button"]:focus,
+    [data-baseweb="button"]:focus-visible,
+    [data-baseweb="button"]:active {
         border-color: rgba(177, 34, 28, 0.28);
-        background: rgba(177, 34, 28, 0.05);
-        color: var(--museum-accent);
+        background-color: rgba(177, 34, 28, 0.05) !important;
+        background-image: none !important;
+        background: rgba(177, 34, 28, 0.05) !important;
+        color: var(--museum-accent) !important;
+        -webkit-text-fill-color: var(--museum-accent) !important;
+        box-shadow: none !important;
+        outline: none !important;
+    }
+
+    div[data-testid="stButton"] > button *,
+    div[data-testid="stButton"] > button p,
+    div[data-testid="stButton"] > button span,
+    div[data-testid="stButton"] > button em,
+    div[data-testid="stButton"] > button strong,
+    button[data-testid^="stBaseButton"] *,
+    button[kind="secondary"] *,
+    [data-baseweb="button"] * {
+        color: inherit !important;
+        -webkit-text-fill-color: inherit !important;
+        background: transparent !important;
     }
 
     div[data-testid="stButton"] > button p {
@@ -605,6 +695,7 @@ st.markdown(
 
     .stTabs [data-baseweb="tab-list"] {
         gap: 0.5rem;
+        flex-wrap: wrap;
     }
 
     .stTabs [data-baseweb="tab"] {
@@ -615,6 +706,86 @@ st.markdown(
 
     .stMarkdown a {
         color: var(--museum-accent);
+    }
+
+    [data-testid="stImage"] img,
+    [data-testid="stImage"] picture,
+    [data-testid="stImage"] > div {
+        max-width: 100%;
+    }
+
+    [data-testid="stPlotlyChart"],
+    [data-testid="stDataFrame"] {
+        overflow-x: auto;
+    }
+
+    div[data-testid="stButton"] > button p {
+        overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 900px) {
+        [data-testid="block-container"] {
+            padding-top: 1.25rem;
+            padding-bottom: 2.5rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+
+        .museum-hero {
+            padding: 1.35rem 1rem 1.15rem 1rem;
+            border-radius: 8px;
+            background-position: 62% center;
+        }
+
+        .museum-hero::after {
+            left: 1rem;
+            right: 1rem;
+            top: 0.7rem;
+        }
+
+        .museum-title {
+            font-size: clamp(2rem, 10vw, 3.1rem);
+            line-height: 1;
+        }
+
+        .museum-kicker,
+        .museum-meta,
+        .museum-style-chip {
+            letter-spacing: 0.08em;
+        }
+
+        .museum-lead {
+            font-size: 0.96rem;
+            line-height: 1.55;
+        }
+
+        [data-testid="stHorizontalBlock"] {
+            gap: 0.85rem;
+        }
+
+        [data-testid="column"] {
+            width: 100% !important;
+            flex: 1 1 100% !important;
+            min-width: 100% !important;
+        }
+
+        [data-testid="stFileUploader"] button,
+        [data-testid="stFileUploaderDropzone"] button,
+        div[data-testid="stButton"] > button,
+        button[data-testid^="stBaseButton"],
+        button[kind="secondary"],
+        [data-baseweb="button"] {
+            min-height: 2.4rem;
+            padding: 0.45rem 0.7rem;
+        }
+
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 0.35rem;
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            font-size: 0.92rem;
+        }
     }
     </style>
     """,
@@ -1127,13 +1298,24 @@ def render_runtime_status() -> dict[str, object]:
             overflow: hidden;
         }}
         div[data-testid="stExpander"] details summary {{
-            background: {button_bg};
-            color: {button_fg};
+            -webkit-appearance: none;
+            appearance: none;
+            background: {button_bg} !important;
+            background-color: {button_bg} !important;
+            color: {button_fg} !important;
+            -webkit-text-fill-color: {button_fg} !important;
             font-weight: 700;
         }}
-        div[data-testid="stExpander"] details summary:hover {{
-            background: {button_bg};
-            color: {button_fg};
+        div[data-testid="stExpander"] details summary:hover,
+        div[data-testid="stExpander"] details summary:focus,
+        div[data-testid="stExpander"] details summary:focus-visible,
+        div[data-testid="stExpander"] details summary:active {{
+            background: {button_bg} !important;
+            background-color: {button_bg} !important;
+            color: {button_fg} !important;
+            -webkit-text-fill-color: {button_fg} !important;
+            outline: none !important;
+            box-shadow: none !important;
         }}
         </style>
         """,
@@ -1346,8 +1528,7 @@ if retriever is not None:
     st.image(
         query_path,
         caption="Image requête",
-        # width="stretch",
-        width=600,
+        width="stretch",
     )
     # Affiche l'image uploadée par l'utilisateur.
     # query_path est le chemin local temporaire de l'image.
