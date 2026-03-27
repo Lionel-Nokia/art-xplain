@@ -1,0 +1,31 @@
+```json
+{
+  "œuvres": [
+    {
+      "titre": "The Large Blue Horses",
+      "artiste": "Franz Marc",
+      "année": 1911,
+      "contexte_historique": "Peintre allemand majeur du mouvement expressionniste, Franz Marc est l'un des fondateurs du groupe 'Der Blaue Reiter' en 1911, aux côtés de Wassily Kandinsky. Ce groupe cherche à exprimer des émotions profondes à travers l'art, en s'éloignant des représentations réalistes. ([en.wikipedia.org](https://en.wikipedia.org/wiki/Blue_Horses?utm_source=openai))",
+      "spécificités_stylistiques": "Marc utilise des couleurs vives et non réalistes pour transmettre des émotions et une spiritualité profonde. Les chevaux bleus symbolisent la paix et la sérénité, reflétant la quête de l'artiste pour une harmonie spirituelle. ([en.wikipedia.org](https://en.wikipedia.org/wiki/Blue_Horses?utm_source=openai))",
+      "éléments_techniques_marquants": "L'utilisation de lignes courbes et de couleurs primaires intenses crée une composition dynamique et expressive. Les formes simplifiées des chevaux s'intègrent harmonieusement dans un paysage abstrait, renforçant l'unité entre l'animal et son environnement. ([en.wikipedia.org](https://en.wikipedia.org/wiki/Blue_Horses?utm_source=openai))"
+    },
+    {
+      "titre": "Caryatid",
+      "artiste": "Amedeo Modigliani",
+      "année": 1911,
+      "contexte_historique": "Modigliani, artiste italien influencé par le cubisme et l'art africain, s'installe à Paris en 1906. En 1909, il commence une série de sculptures de caryatides, des figures féminines servant de supports architecturaux, qu'il appelle ses 'colonnes de tendresse'. ([ngv.vic.gov.au](https://www.ngv.vic.gov.au/essay/caryatid/?utm_source=openai))",
+      "spécificités_stylistiques": "Les caryatides de Modigliani présentent des formes allongées et stylisées, inspirées de l'art antique et africain. Ces sculptures fusionnent abstraction et sensualité, reflétant une recherche de pureté esthétique. ([ngv.vic.gov.au](https://www.ngv.vic.gov.au/essay/caryatid/?utm_source=openai))",
+      "éléments_techniques_marquants": "Modigliani utilise la taille directe dans la pierre, une technique qui lui permet de créer des formes épurées et fluides. Les sculptures sont souvent caractérisées par des visages simplifiés et des corps élancés, accentuant l'élégance et la sérénité des figures. ([ngv.vic.gov.au](https://www.ngv.vic.gov.au/essay/caryatid/?utm_source=openai))"
+    },
+    {
+      "titre": "Young Woman",
+      "artiste": "Amedeo Modigliani",
+      "année": "Date non précisée",
+      "contexte_historique": "Modigliani est un peintre et sculpteur italien actif à Paris au début du XXe siècle. Influencé par le cubisme et l'art africain, il développe un style unique caractérisé par des formes allongées et stylisées. ([academickids.com](https://academickids.com/encyclopedia/index.php/Amedeo_Modigliani?utm_source=openai))",
+      "spécificités_stylistiques": "Les portraits de Modigliani, tels que 'Young Woman', présentent des visages allongés, des yeux en amande et des traits simplifiés, fusionnant abstraction et sensualité. Cette approche reflète son intérêt pour l'art primitif et sa recherche d'une beauté intemporelle. ([academickids.com](https://academickids.com/encyclopedia/index.php/Amedeo_Modigliani?utm_source=openai))",
+      "éléments_techniques_marquants": "Modigliani utilise des couleurs chaudes et une technique de peinture fluide pour créer des portraits expressifs. Les compositions sont souvent caractérisées par des lignes courbes et des formes simplifiées, accentuant l'élégance et la sérénité des sujets. ([academickids.com](https://academickids.com/encyclopedia/index.php/Amedeo_Modigliani?utm_source=openai))"
+    }
+  ],
+  "comparaison_stylistique_globale": "Tant Marc que Modigliani cherchent à exprimer des émotions profondes à travers des formes stylisées et des couleurs non réalistes. Marc utilise des couleurs vives et des formes simplifiées pour transmettre une spiritualité profonde, tandis que Modigliani fusionne abstraction et sensualité dans ses portraits et sculptures, influencés par l'art primitif. Les deux artistes s'éloignent des représentations réalistes pour explorer des dimensions émotionnelles et esthétiques plus profondes."
+}
+``` 

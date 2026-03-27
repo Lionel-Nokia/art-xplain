@@ -1,0 +1,30 @@
+```json
+{
+  "chapitres": [
+    {
+      "titre": "Gustave Courbet - La Jeune Baigneuse",
+      "contenu": "Gustave Courbet, peintre français du XIXᵉ siècle, est une figure majeure du réalisme. Dans \"La Jeune Baigneuse\" (1866), il représente une femme nue debout au bord d'un ruisseau, plongée dans une nature luxuriante. Son corps est traité de manière naturaliste, sans idéalisation, avec une attention particulière aux détails anatomiques et à la texture de la peau. La lumière douce et les couleurs terreuses renforcent l'intimité de la scène. ([metmuseum.org](https://www.metmuseum.org/art/collection/search/436003?utm_source=openai))"
+    },
+    {
+      "titre": "Vasily Tropinin - Portrait d'Alexey Tuchkov",
+      "contenu": "Vasily Tropinin, peintre russe du XIXᵉ siècle, est reconnu pour ses portraits réalistes. Dans \"Portrait d'Alexey Tuchkov\" (1843), il dépeint un homme en tenue militaire, avec une attention particulière aux détails de l'uniforme et à l'expression du visage. La palette de couleurs est sobre, dominée par des tons de brun et de vert, reflétant la dignité et le sérieux du sujet. ([wikiart.org](https://www.wikiart.org/en/vasily-tropinin/tuchkov-alexey-the-hero-of-1812-the-father-of-the-decembrist-alexei-tuchkova-1843?utm_source=openai))"
+    },
+    {
+      "titre": "Camille Corot - Le Matin, La Danse des Nymphes",
+      "contenu": "Camille Corot, peintre français du XIXᵉ siècle, est célèbre pour ses paysages et ses scènes mythologiques. Dans \"Le Matin, La Danse des Nymphes\", il illustre des nymphes dansant au lever du soleil, baignant dans une lumière dorée. Les couleurs sont lumineuses et les formes fluides, créant une atmosphère onirique et poétique."
+    },
+    {
+      "titre": "Julius LeBlanc Stewart - Femme dans un Jardin",
+      "contenu": "Julius LeBlanc Stewart, peintre américain du XIXᵉ siècle, est connu pour ses scènes de genre et ses portraits. Dans \"Femme dans un Jardin\" (1888), il représente une femme élégante se promenant dans un jardin luxuriant. Les détails du jardin sont rendus avec une grande précision, et la lumière naturelle met en valeur la texture des vêtements et des fleurs."
+    },
+    {
+      "titre": "Constant Troyon - La Jeune Fille aux Oies",
+      "contenu": "Constant Troyon, peintre français du XIXᵉ siècle, est associé à l'école de Barbizon et est reconnu pour ses paysages et scènes rurales. Dans \"La Jeune Fille aux Oies\", il dépeint une jeune fille en train de mener des oies à travers un paysage bucolique. La scène est rendue avec une attention particulière à la lumière naturelle et aux textures, reflétant l'influence du réalisme et de l'école de Barbizon."
+    },
+    {
+      "titre": "Analyse de la Proximité Stylistique",
+      "contenu": "Les artistes mentionnés partagent une approche réaliste, cherchant à représenter le monde avec précision et sans idéalisation. Courbet et Tropinin se concentrent sur des sujets humains, tandis que Corot et Troyon privilégient les paysages et les scènes de la vie quotidienne. Tous utilisent la lumière et la couleur pour renforcer l'atmosphère de leurs œuvres, reflétant les préoccupations artistiques du XIXᵉ siècle."
+    }
+  ]
+}
+``` 

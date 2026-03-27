@@ -1,0 +1,47 @@
+```json
+{
+  "oeuvres": [
+    {
+      "titre": "Os Galgos",
+      "artiste": "Amadeo De Souza Cardoso",
+      "date": 1911,
+      "contexte_historique": "Créée en 1911, cette œuvre s'inscrit dans la période où Amadeo de Souza Cardoso explore les influences du cubisme et du futurisme, après son séjour à Paris. ([en.wikipedia.org](https://en.wikipedia.org/wiki/Amadeo_de_Souza-Cardoso?utm_source=openai))",
+      "specificites_stylistiques": "Représentation dynamique de la chasse, fusionnant des éléments cubistes et futuristes pour illustrer le mouvement et l'énergie.",
+      "elements_techniques_marquants": "Utilisation de formes géométriques pour décomposer la scène, avec une palette de couleurs vives accentuant le dynamisme."
+    },
+    {
+      "titre": "Double Self Portrait",
+      "artiste": "Egon Schiele",
+      "date": 1915,
+      "contexte_historique": "Réalisé en 1915, ce portrait double reflète la période de la Première Guerre mondiale, marquée par des tensions et des introspections personnelles.",
+      "specificites_stylistiques": "Caractéristique de l'expressionnisme, avec des lignes angulaires et des couleurs intenses pour exprimer des émotions profondes.",
+      "elements_techniques_marquants": "Traitement audacieux des corps et des visages, accentuant les traits pour intensifier l'expression émotionnelle."
+    },
+    {
+      "titre": "Werther I",
+      "artiste": "Lyonel Feininger",
+      "date": 1916,
+      "contexte_historique": "Créée en 1916, cette œuvre s'inspire du roman 'Les Souffrances du jeune Werther' de Goethe, reflétant les tourments émotionnels de l'époque.",
+      "specificites_stylistiques": "Mélange de cubisme et d'expressionnisme, avec des formes fragmentées et une palette de couleurs sombres pour illustrer la mélancolie.",
+      "elements_techniques_marquants": "Utilisation de lignes angulaires et de perspectives déformées pour créer une atmosphère de tension intérieure."
+    },
+    {
+      "titre": "Svanen",
+      "artiste": "Hilma Af Klint",
+      "date": 1914,
+      "contexte_historique": "Réalisée en 1914, cette œuvre s'inscrit dans la période où Hilma Af Klint explore l'abstraction spirituelle, influencée par le mouvement théosophique.",
+      "specificites_stylistiques": "Premiers travaux abstraits, avec des formes géométriques et des couleurs vives, anticipant l'art abstrait du XXe siècle.",
+      "elements_techniques_marquants": "Composition non figurative, utilisation de symboles et de motifs inspirés de la nature et de l'ésotérisme."
+    },
+    {
+      "titre": "Clown, Horse, Salamander",
+      "artiste": "Amadeo De Souza Cardoso",
+      "date": 1912,
+      "contexte_historique": "Créée vers 1911-1912, cette gouache est l'une des plus reproduites de l'artiste, probablement présentée lors de sa première exposition avec Modigliani en 1911. ([gulbenkian.pt](https://gulbenkian.pt/cam/en/works/title-unknown-clown-horse-salamandra-140275/?utm_source=openai))",
+      "specificites_stylistiques": "Fusion de styles, mêlant symbolisme portugais et courants avant-gardistes, avec une palette de couleurs vives et une composition dynamique.",
+      "elements_techniques_marquants": "Utilisation de gouache sur papier, avec des formes stylisées et une attention particulière aux détails décoratifs."
+    }
+  ],
+  "comparaison_stylistique_globale": "Les œuvres présentées illustrent une transition vers la modernité, mêlant influences cubistes, expressionnistes et abstraites. Elles partagent une exploration de la forme et de la couleur pour exprimer des émotions et des concepts, tout en reflétant les préoccupations et les innovations artistiques de leurs époques respectives."
+}
+``` 
