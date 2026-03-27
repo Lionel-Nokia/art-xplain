@@ -14,6 +14,7 @@ import json
 import random
 import re
 import unicodedata
+from dataclasses import dataclass
 from html import escape
 # Module standard donnant accès à des informations et réglages liés à l'interpréteur Python.
 # Ici, il sert surtout à manipuler sys.path, c'est-à-dire la liste des dossiers
@@ -104,6 +105,40 @@ INTERNAL_DF_DIR = PROJECT_ROOT / "data"
 INTERNAL_DF_PATH = INTERNAL_DF_DIR / "internal_artworks.csv"
 INTERNAL_DF_COLUMNS = ["artiste", "tableau", "style", "fichier", "analyse", "similarite"]
 AI_GUIDE_PROFILE_NAME = "guide_musée"
+
+# -----------------------------------------------------------------------------
+# NOTE D'ARCHITECTURE
+# -----------------------------------------------------------------------------
+# Ce module mélange volontairement deux niveaux :
+# 1. des helpers "métier / parsing / formatage" assez indépendants de Streamlit ;
+# 2. une classe orchestratrice `ArtXplainApp` qui porte le flux UI de bout en bout.
+#
+# L'objectif du refactor n'est pas encore de découper le fichier en plusieurs modules,
+# mais de rendre la lecture d'une revue de code plus simple :
+# - les fonctions utilitaires restent globales car elles sont pures ou quasi-pures ;
+# - la classe centralise l'état runtime et le pipeline d'affichage Streamlit ;
+# - les dataclasses servent de "contrat de passage" entre étapes du pipeline.
+#
+# En pratique, la lecture recommandée du fichier est :
+# - d'abord `ArtXplainApp.run()`
+# - puis les dataclasses de contexte
+# - puis les méthodes `_render_*` / `_build_*`
+# - enfin les helpers globaux appelés par ces méthodes.
+#
+# MINI SOMMAIRE DE NAVIGATION
+# - Helpers de formatage / parsing IA :
+#   `_format_analysis_text`, `_extract_json_payload`, `_coerce_payload_to_chapters`,
+#   `_match_artwork_analysis`, `_match_source_artwork_analysis`
+# - Helpers retrieval / visualisation :
+#   `get_retriever`, `_extract_artist_and_title`, `_build_style_names`,
+#   `_select_explanation_layers`, `_build_random_gradcam_layer_numbers`
+# - Chargement des artefacts :
+#   `load_latent_and_meta`, `_inspect_runtime_assets`, `render_runtime_status`
+# - Contrats de passage :
+#   `AppConfig`, `QuerySource`, `ArtworkResultsContext`, `AIAnalysisState`
+# - Orchestrateur UI :
+#   `ArtXplainApp.run()` puis les méthodes privées regroupées par section
+#   (cycle de vie, UI, IA, visualisation).
 
 
 def _load_inline_svg(svg_path: Path) -> str:
@@ -299,6 +334,11 @@ def _analysis_text_to_html(text: str) -> str:
     Transforme le texte d'analyse en HTML en mettant certains sous-titres en gras.
     """
     html = escape(str(text).strip())
+    # REVIEW NOTE:
+    # L'agent IA renvoie parfois du Markdown inline (`**...**`) à l'intérieur
+    # d'un bloc que l'on affiche ensuite comme HTML. Sans conversion explicite,
+    # les marqueurs apparaissent littéralement dans l'UI.
+    html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
     for subtitle in ["Contexte historique et technique", "Spécificités stylistiques"]:
         html = html.replace(subtitle, f"<strong>{subtitle}</strong>")
     return html.replace("\n", "<br>")
@@ -422,6 +462,11 @@ def _coerce_payload_to_chapters(
     """
     Convertit différents schémas JSON en une liste homogène de chapitres.
     """
+    # REVIEW NOTE:
+    # Cette fonction joue le rôle d'adaptateur de contrat entre les sorties IA
+    # parfois hétérogènes et le format unique attendu par l'UI.
+    # C'est volontairement l'un des rares endroits où l'on accepte plusieurs
+    # schémas en entrée afin d'éviter de propager cette complexité dans le rendu.
     if payload is None:
         return None
 
@@ -520,6 +565,12 @@ def _match_artwork_analysis(
     """
     Retrouve le meilleur fragment d'analyse pour une oeuvre donnée.
     """
+    # REVIEW NOTE:
+    # On ne s'appuie pas uniquement sur l'ordre des chapitres IA.
+    # Le mapping est fait par score artiste / titre, car l'agent peut :
+    # - changer l'ordre ;
+    # - reformuler les titres ;
+    # - inclure un chapitre global qui décale les positions.
     chapters = _extract_chapters_payload(final_output)
     title_key = _normalize_lookup_text(title)
     artist_key = _normalize_lookup_text(artist)
@@ -682,6 +733,7 @@ def _run_async_analysis_sync(
             config_path=str(PROJECT_ROOT / "config" / "config_agent.yaml"),
             profile_name=profile_name,
             output_folder=str(PROJECT_ROOT / "outputs"),
+            save_to_file=False,
         )
 
     try:
@@ -2025,430 +2077,580 @@ def render_runtime_status() -> dict[str, object]:
     return status
 
 
-# =============================================================================
-# INITIALISATION DES RESSOURCES
-# =============================================================================
+@dataclass
+class AppConfig:
+    """
+    Regroupe les options choisies par l'utilisateur dans le panneau Configuration.
 
-retriever = None
-retriever_error = None
-
-try:
-    retriever = get_retriever()
-except Exception as exc:
-    retriever_error = exc
-# Instancie (ou récupère depuis le cache) le moteur de recherche.
-# Cette ligne est exécutée lors du rendu du script Streamlit.
-# Dans Streamlit, le script est relancé de haut en bas à chaque interaction utilisateur.
-# Grâce au cache, cette ré-exécution ne reconstruit pas inutilement le moteur.
-
-latent_bundle = None
-# Variable initialisée par défaut à None.
-# Elle contiendra plus tard soit les données UMAP, soit restera vide si indisponibles.
-
-latent_error = None
-# Variable destinée à stocker une éventuelle exception rencontrée
-# lors du chargement des données UMAP.
-
-try:
-    latent_bundle = load_latent_and_meta()
-    # Tente de charger les données UMAP.
-    # Si tout se passe bien, latent_bundle contiendra un tuple prêt à être utilisé
-    # dans la section de visualisation plus bas.
-except Exception as exc:
-    latent_error = exc
-    # En cas d'erreur, on la stocke sans faire crasher l'application.
-    # Cela permet à l'interface principale de rester utilisable même si l'UMAP est cassé.
-    # C'est un choix ergonomique important : une fonctionnalité secondaire défaillante
-    # ne doit pas rendre inutilisable le cœur du produit.
+    Ce conteneur évite de faire circuler plusieurs variables primitives (`k`,
+    profil IA, nombre de paires Grad-CAM, etc.) à travers tout le pipeline.
+    En revue de code, il sert de "snapshot" de la configuration effective.
+    """
+    result_count: int
+    ai_profile_name: str
+    gradcam_pair_count: int
+    ai_agent_enabled: bool
 
 
-# =============================================================================
-# INTERFACE UTILISATEUR - CONTRÔLES D'ENTRÉE
-# =============================================================================
+@dataclass
+class QuerySource:
+    """
+    Représente l'oeuvre source réellement utilisée pour une exécution donnée.
 
-runtime_status = render_runtime_status()
-available_ai_profiles = _get_available_ai_profile_names()
-default_ai_profile_name = _get_default_ai_profile_name()
-
-if retriever_error is not None:
-    st.warning(f"Moteur de retrieval indisponible : {retriever_error}")
-
-if "show_gradcam_history" not in st.session_state:
-    st.session_state["show_gradcam_history"] = False
-
-if st.session_state.pop("reset_gradcam_history", False):
-    st.session_state["show_gradcam_history"] = False
-
-if st.session_state.pop("reset_ai_analyses", False):
-    st.session_state["show_ai_analyses"] = False
-
-upload_disabled = (retriever_error is not None) or (not runtime_status["upload_enabled"])
-
-uploaded = st.file_uploader(
-    "Upload une image (jpg/png/webp)",
-    type=["jpg", "jpeg", "png", "webp"],
-    disabled=upload_disabled,
-)
-# Affiche un composant de téléchargement de fichier.
-# L'utilisateur peut envoyer une image dans l'un des formats autorisés.
-# La variable 'uploaded' contiendra soit None (si rien n'est chargé),
-# soit un objet UploadedFile fourni par Streamlit.
-
-uploaded_signature = None
-if uploaded is not None:
-    uploaded_signature = f"{uploaded.name}:{uploaded.size}"
-
-if uploaded_signature != st.session_state.get("uploaded_signature"):
-    st.session_state["uploaded_signature"] = uploaded_signature
-    st.session_state["show_gradcam_history"] = False
-    st.session_state["show_ai_analyses"] = False
-    if uploaded_signature is not None:
-        st.session_state["source_mode"] = "uploaded"
-
-with st.expander("Configuration", expanded=False):
-    selected_result_count = st.slider(
-        "Nombre de tableaux comparés",
-        min_value=1,
-        max_value=4,
-        value=4,
-        key="result_count",
-        help="Définit combien d'oeuvres similaires afficher et comparer.",
-    )
-
-    selected_ai_profile = st.selectbox(
-        "Profil de l'agent IA",
-        options=available_ai_profiles,
-        index=(
-            available_ai_profiles.index(default_ai_profile_name)
-            if default_ai_profile_name in available_ai_profiles
-            else 0
-        ),
-        key="selected_ai_profile",
-        disabled=not _is_ai_agent_enabled(),
-        help="Choisit le style de commentaire utilisé pour les analyses IA.",
-    )
-
-    gradcam_pair_count = st.slider(
-        "Nombre de paires Grad-CAM",
-        min_value=1,
-        max_value=30,
-        value=10,
-        key="gradcam_pair_count",
-        help="Définit combien de paires de cartes Grad-CAM afficher.",
-    )
-
-    if not _is_ai_agent_enabled():
-        st.caption("L'agent IA est désactivé dans la configuration actuelle.")
-
-k = int(selected_result_count)
-# Nombre de résultats similaires à demander au moteur.
-# Ici, on fixe top-k à 4 de manière statique.
-# Une version plus avancée pourrait exposer ce paramètre à l'utilisateur via
-# un slider Streamlit, mais le garder fixe simplifie l'expérience.
+    La source peut venir soit :
+    - d'un upload utilisateur ;
+    - d'un rechargement depuis la galerie de résultats.
+    """
+    query_path: str | None
+    source_display_name: str | None
+    source_notice: str | None
 
 
-# =============================================================================
-# TRAITEMENT PRINCIPAL
-# =============================================================================
+@dataclass
+class ArtworkResultsContext:
+    """
+    Contexte principal construit après le retrieval.
 
-if retriever is not None:
-    # Toute la logique principale de recherche est exécutée seulement
-    # si l'utilisateur a effectivement uploadé une image
-    # ou sélectionné une œuvre des résultats comme nouvelle source.
-    # Cette condition joue le rôle de "point d'entrée utilisateur" du workflow.
-    # Tant qu'aucune image n'est fournie ou sélectionnée, l'application reste dans un état d'attente.
+    Cette structure centralise tout ce qui est dérivé de la recherche :
+    - oeuvre source interprétée ;
+    - résultats bruts du retriever ;
+    - version tabulaire pour affichage ;
+    - raccourcis vers top-1 / top-2 / top-3.
+    """
+    query_path: str
+    source_display_name: str | None
+    source_artist: str
+    source_title: str
+    results: list[dict[str, object]]
+    rows: list[dict[str, object]]
+    df_results: pd.DataFrame
+    best: dict[str, object]
+    second_best: dict[str, object] | None
+    third_best: dict[str, object] | None
 
-    query_path = None
-    source_display_name = None
-    source_notice = None
 
-    if (
-        st.session_state.get("source_mode") == "gallery"
-        and st.session_state.get("source_image_path")
-    ):
-        query_path = str(st.session_state["source_image_path"])
-        source_display_name = str(
-            st.session_state.get("source_image_name", Path(query_path).name)
-        )
-        source_notice = f"Image source sélectionnée depuis les résultats : `{source_display_name}`"
+@dataclass
+class AIAnalysisState:
+    """
+    État de la phase d'analyse IA pour le rendu courant.
 
-    elif uploaded is not None:
-        suffix = Path(uploaded.name).suffix if uploaded.name else ".jpg"
-        # On récupère l'extension du fichier uploadé (.jpg, .png, etc.)
-        # pour la réutiliser dans le fichier temporaire.
-        # Si uploaded.name est absent, on prend .jpg par défaut.
+    On sépare ce bloc du `ArtworkResultsContext` car l'analyse IA est optionnelle,
+    coûteuse et potentiellement en erreur. Cette séparation aide à raisonner
+    explicitement sur les cas :
+    - IA désactivée ;
+    - IA activée mais indisponible ;
+    - IA activée avec payload exploitable.
+    """
+    enabled: bool
+    profile_name: str
+    payload: dict[str, str] | None
+    error: str | None
+    artwork_of_interest: str
+    candidates_df: pd.DataFrame
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
-            # Crée un fichier temporaire sur disque.
-            # delete=False signifie que le fichier ne sera pas supprimé automatiquement
-            # à la fermeture du contexte.
-            # C'est utile si le moteur de retrieval attend un chemin de fichier réel.
-            f.write(uploaded.read())
-            # Lit le contenu binaire du fichier uploadé puis l'écrit dans le fichier temporaire.
 
-            query_path = f.name
-            # Stocke le chemin du fichier temporaire.
-            # Ce chemin sera passé au moteur de recherche.
-            # On passe donc d'un objet Streamlit en mémoire à un fichier concret sur disque,
-            # ce qui facilite l'intégration avec du code existant orienté "path de fichier".
+class ArtXplainApp:
+    """
+    Orchestrateur principal de l'application Streamlit.
 
-        source_display_name = uploaded.name or Path(query_path).name
+    La classe ne cherche pas à encapsuler toute la logique métier du fichier.
+    Son rôle est plus ciblé :
+    - charger les ressources techniques (retriever, bundle UMAP) ;
+    - gérer l'état UI / session Streamlit ;
+    - dérouler un pipeline de rendu lisible et stable.
+    """
+    def __init__(self) -> None:
+        self.retriever: StyleRetriever | None = None
+        self.retriever_error: Exception | None = None
+        self.latent_bundle = None
+        self.latent_error: Exception | None = None
+        self.runtime_status: dict[str, object] | None = None
+        self.available_ai_profiles: list[str] = []
+        self.default_ai_profile_name = AI_GUIDE_PROFILE_NAME
 
-    if query_path is None:
-        st.stop()
+    # ---------------------------------------------------------------------
+    # SECTION 1 - CYCLE DE VIE GLOBAL DE L'APPLICATION
+    # ---------------------------------------------------------------------
+    def run(self) -> None:
+        """
+        Point d'entrée applicatif.
 
-    if source_notice:
-        st.info(source_notice)
+        Le flux est volontairement linéaire pour faciliter la revue :
+        1. chargement des ressources lourdes ;
+        2. lecture / initialisation de l'état Streamlit ;
+        3. résolution de la source courante ;
+        4. retrieval ;
+        5. rendu des sections UI dépendantes du contexte obtenu.
+        """
+        self._load_resources()
+        self.runtime_status = render_runtime_status()
+        self.available_ai_profiles = _get_available_ai_profile_names()
+        self.default_ai_profile_name = _get_default_ai_profile_name()
 
-    with st.spinner("Recherche des œuvres similaires..."):
-        results = retriever.top_k_similar(query_path, k=k)
-        # Affiche une animation d'attente pendant l'exécution de la recherche.
-        # top_k_similar est supposée renvoyer une liste de résultats,
-        # chaque résultat étant probablement un dictionnaire contenant au moins :
-        # - filepath
-        # - style
-        # - similarity
+        if self.retriever_error is not None:
+            st.warning(f"Moteur de retrieval indisponible : {self.retriever_error}")
 
-    if not results:
-        st.error("Aucun résultat n'a été retourné par le moteur de recherche.")
-        # Affiche un message d'erreur utilisateur si la liste est vide.
+        self._initialize_session_state()
+        uploaded = self._render_uploader()
+        config = self._render_configuration_panel()
 
-        st.stop()
-        # Arrête immédiatement l'exécution du script Streamlit pour cette interaction.
-        # Cela évite d'accéder à results[0] plus bas et donc de provoquer une erreur.
+        if self.retriever is None:
+            self._render_unavailable_state(uploaded)
+            return
 
-    best = results[0]
-    # Récupère le premier résultat, supposé être le plus pertinent.
-    # On l'utilise ensuite comme top-1 pour le style suggéré, Grad-CAM++ et le highlight UMAP.
-    # Le reste de l'interface s'organise donc autour de ce meilleur voisin :
-    # c'est lui qui sert de référence principale pour l'explication visuelle.
-    second_best = results[1] if len(results) > 1 else None
-    # Conserve aussi le top-2 quand il existe pour pouvoir le pointer dans l'UMAP.
-    third_best = results[2] if len(results) > 2 else None
-    # Conserve aussi le top-3 quand il existe pour l'afficher dans l'UMAP.
+        source = self._resolve_query_source(uploaded)
+        if source.query_path is None:
+            st.stop()
 
-    # -------------------------------------------------------------------------
-    # Affichage de l'image source
-    # -------------------------------------------------------------------------
-    st.subheader("Image source")
-    # Affiche un sous-titre pour introduire la section de l'image requête.
+        if source.source_notice:
+            st.info(source.source_notice)
 
-    source_image_width = _compute_source_image_display_width(query_path)
+        results_context = self._build_results_context(source, config.result_count)
+        self._render_source_section(results_context)
+        ai_state = self._build_ai_analysis_state(results_context, config)
+        self._render_source_ai_section(results_context, ai_state)
+        self._render_visual_comparison(results_context)
+        self._render_global_ai_section(results_context, ai_state)
+        self._render_summary(results_context.df_results)
+        self._render_umap(results_context)
+        self._render_gradcam(results_context, config.gradcam_pair_count)
 
-    st.image(
-        query_path,
-        caption="Image requête",
-        width=source_image_width,
-    )
-    # Affiche l'image uploadée par l'utilisateur.
-    # query_path est le chemin local temporaire de l'image.
-    # caption ajoute une légende sous l'image.
-    # La largeur est ajustée selon le ratio de l'image pour éviter les formats
-    # trop étirés sur l'interface.
+    def _load_resources(self) -> None:
+        """
+        Charge les dépendances coûteuses mais non bloquantes séparément.
 
-    source_artist, source_title = _extract_artist_and_title(source_display_name or query_path)
-    st.markdown(
-        f"""
-        <p style="line-height:1.1; margin:0;">
-            <strong>{source_artist}</strong><br>
-            <em>{source_title}</em>
-        </p>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        f"""
-        <div class="museum-style-chip">
-            Style suggéré • {best['style']}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    # Affiche le style du meilleur résultat en gras grâce au Markdown.
-    # best['style'] est supposé provenir du moteur de retrieval.
-
-    rows = []
-    # Prépare une structure unique réutilisée par l'affichage, le résumé et l'analyse IA.
-
-    for i, res in enumerate(results):
-        artist, title = _extract_artist_and_title(res["filepath"])
-        rows.append(
-            {
-                "rang": i + 1,
-                "artiste": artist,
-                "tableau": title,
-                "style": res["style"],
-                "similarité": round(float(res["similarity"]), 4),
-                "fichier": Path(str(res["filepath"])).name,
-                "chemin": str(res["filepath"]),
-            }
-        )
-
-    df_results = pd.DataFrame(rows)
-    # Transforme la liste de dictionnaires en tableau structuré Pandas.
-
-    _update_internal_dataframe_from_results(df_results, source_artist, source_title)
-    # Alimente le DataFrame interne avec les artistes absents du stockage local.
-
-    ai_agent_enabled = _is_ai_agent_enabled()
-
-    show_ai_analyses = False
-    if ai_agent_enabled:
-        show_ai_analyses = st.checkbox(
-            "Afficher les analyses IA sous les tableaux",
-            value=False,
-            key="show_ai_analyses",
-        )
-
-    ai_analysis_payload: dict[str, str] | None = None
-    ai_analysis_error: str | None = None
-    artwork_of_interest = " ".join(
-        part for part in [str(source_artist).strip(), str(source_title).strip()] if part
-    )
-
-    candidates_df = pd.DataFrame(
-        [
-            {"Artiste": row["artiste"], "Titre": row["tableau"], "Année": None}
-            for row in rows
-        ]
-    )
-
-    should_run_ai_analysis = ai_agent_enabled and show_ai_analyses
-    ai_profile_name = str(selected_ai_profile).strip() or default_ai_profile_name
-
-    if should_run_ai_analysis and not candidates_df.empty:
-        candidates_json = json.dumps(candidates_df.to_dict(orient="records"), ensure_ascii=False)
-        ai_progress_text = st.empty()
-        ai_progress_bar = st.progress(0)
+        On capture les erreurs au lieu de laisser planter le script Streamlit,
+        ce qui permet de conserver une UI partiellement fonctionnelle avec des
+        messages d'état explicites.
+        """
         try:
-            ai_progress_text.caption("Chargement des analyses IA : préparation des œuvres")
-            ai_progress_bar.progress(0.2)
+            self.retriever = get_retriever()
+        except Exception as exc:
+            self.retriever_error = exc
 
-            ai_progress_text.caption("Chargement des analyses IA : envoi de la requête")
-            ai_progress_bar.progress(0.45)
+        try:
+            self.latent_bundle = load_latent_and_meta()
+        except Exception as exc:
+            self.latent_error = exc
 
-            ai_analysis_payload = _get_cached_ai_analysis(
-                candidates_json,
-                artwork_of_interest,
-                ai_profile_name,
+    def _initialize_session_state(self) -> None:
+        """
+        Normalise les clés de session utilisées comme toggles de rendu.
+
+        Streamlit relance le script complet à chaque interaction ; cette méthode
+        joue donc un rôle essentiel pour transformer les `st.session_state[...]`
+        en source de vérité stable entre deux reruns.
+        """
+        if "show_gradcam_history" not in st.session_state:
+            st.session_state["show_gradcam_history"] = False
+
+        if st.session_state.pop("reset_gradcam_history", False):
+            st.session_state["show_gradcam_history"] = False
+
+        if st.session_state.pop("reset_ai_analyses", False):
+            st.session_state["show_ai_analyses"] = False
+
+    # ---------------------------------------------------------------------
+    # SECTION 2 - CONTRÔLES D'ENTRÉE ET CONFIGURATION UI
+    # ---------------------------------------------------------------------
+    def _render_uploader(self):
+        """
+        Affiche le widget d'upload et détecte un éventuel changement de fichier.
+
+        Le changement d'upload réinitialise certains panneaux coûteux ou
+        contextuels (Grad-CAM, analyses IA), afin d'éviter d'afficher des
+        résultats devenus incohérents avec la nouvelle oeuvre source.
+        """
+        upload_disabled = bool(
+            (self.retriever_error is not None)
+            or (not bool(self.runtime_status and self.runtime_status["upload_enabled"]))
+        )
+
+        uploaded = st.file_uploader(
+            "Upload une image (jpg/png/webp)",
+            type=["jpg", "jpeg", "png", "webp"],
+            disabled=upload_disabled,
+        )
+
+        uploaded_signature = None
+        if uploaded is not None:
+            uploaded_signature = f"{uploaded.name}:{uploaded.size}"
+
+        if uploaded_signature != st.session_state.get("uploaded_signature"):
+            st.session_state["uploaded_signature"] = uploaded_signature
+            st.session_state["show_gradcam_history"] = False
+            st.session_state["show_ai_analyses"] = False
+            if uploaded_signature is not None:
+                st.session_state["source_mode"] = "uploaded"
+
+        return uploaded
+
+    def _render_configuration_panel(self) -> AppConfig:
+        """
+        Rend le panneau de configuration utilisateur et retourne un objet typé.
+
+        Le retour sous forme de dataclass rend le reste du code plus lisible
+        qu'une succession de variables globales dispersées.
+        """
+        ai_agent_enabled = _is_ai_agent_enabled()
+
+        with st.expander("Configuration", expanded=False):
+            selected_result_count = st.slider(
+                "Nombre de tableaux comparés",
+                min_value=1,
+                max_value=4,
+                value=4,
+                key="result_count",
+                help="Définit combien d'oeuvres similaires afficher et comparer.",
             )
 
-            ai_progress_text.caption("Chargement des analyses IA : extraction des chapitres")
-            ai_progress_bar.progress(0.8)
+            selected_ai_profile = st.selectbox(
+                "Profil de l'agent IA",
+                options=self.available_ai_profiles,
+                index=(
+                    self.available_ai_profiles.index(self.default_ai_profile_name)
+                    if self.default_ai_profile_name in self.available_ai_profiles
+                    else 0
+                ),
+                key="selected_ai_profile",
+                disabled=not ai_agent_enabled,
+                help="Choisit le style de commentaire utilisé pour les analyses IA.",
+            )
 
-            _extract_chapters_payload(ai_analysis_payload["final_output"])
+            gradcam_pair_count = st.slider(
+                "Nombre de paires Grad-CAM",
+                min_value=1,
+                max_value=30,
+                value=10,
+                key="gradcam_pair_count",
+                help="Définit combien de paires de cartes Grad-CAM afficher.",
+            )
 
-            ai_progress_text.caption("Chargement des analyses IA : terminé")
-            ai_progress_bar.progress(1.0)
-        except Exception as exc:
-            ai_analysis_error = str(exc)
-        finally:
-            ai_progress_text.empty()
-            ai_progress_bar.empty()
+            if not ai_agent_enabled:
+                st.caption("L'agent IA est désactivé dans la configuration actuelle.")
 
-    if should_run_ai_analysis and ai_analysis_payload is not None:
-        source_analysis = _match_source_artwork_analysis(
-            ai_analysis_payload["final_output"],
-            source_artist,
-            source_title,
-            artwork_of_interest,
-            source_display_name,
+        profile_name = str(selected_ai_profile).strip() or self.default_ai_profile_name
+        return AppConfig(
+            result_count=int(selected_result_count),
+            ai_profile_name=profile_name,
+            gradcam_pair_count=int(gradcam_pair_count),
+            ai_agent_enabled=ai_agent_enabled,
         )
-        if source_analysis:
-            with st.expander(
-                f"Analyse IA ({ai_profile_name}) de l'image requête",
-                expanded=False,
-            ):
+
+    def _resolve_query_source(self, uploaded) -> QuerySource:
+        """
+        Détermine quelle image sert de source pour cette exécution.
+
+        Priorité actuelle :
+        - une oeuvre recliquée depuis la galerie ;
+        - sinon l'upload courant.
+        """
+        # REVIEW NOTE:
+        # Le `session_state["source_mode"] == "gallery"` donne priorité à une
+        # oeuvre rechargée depuis les résultats, même si un upload existe encore
+        # dans le widget Streamlit. Cela évite que le rerun revienne par erreur
+        # à l'ancien fichier uploadé après un clic dans la galerie.
+        query_path = None
+        source_display_name = None
+        source_notice = None
+
+        if (
+            st.session_state.get("source_mode") == "gallery"
+            and st.session_state.get("source_image_path")
+        ):
+            query_path = str(st.session_state["source_image_path"])
+            source_display_name = str(
+                st.session_state.get("source_image_name", Path(query_path).name)
+            )
+            source_notice = f"Image source sélectionnée depuis les résultats : `{source_display_name}`"
+        elif uploaded is not None:
+            suffix = Path(uploaded.name).suffix if uploaded.name else ".jpg"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+                f.write(uploaded.read())
+                query_path = f.name
+            source_display_name = uploaded.name or Path(query_path).name
+
+        return QuerySource(
+            query_path=query_path,
+            source_display_name=source_display_name,
+            source_notice=source_notice,
+        )
+
+    # ---------------------------------------------------------------------
+    # SECTION 3 - PIPELINE MÉTIER : RETRIEVAL ET CONTEXTES PARTAGÉS
+    # ---------------------------------------------------------------------
+    def _build_results_context(self, source: QuerySource, result_count: int) -> ArtworkResultsContext:
+        """
+        Exécute le retrieval puis construit le contexte métier partagé.
+
+        C'est ici que l'on bascule du "contexte d'entrée" vers le "contexte
+        de comparaison" utilisé ensuite par presque toutes les sections.
+        """
+        assert self.retriever is not None
+        assert source.query_path is not None
+
+        with st.spinner("Recherche des œuvres similaires..."):
+            results = self.retriever.top_k_similar(source.query_path, k=result_count)
+
+        if not results:
+            st.error("Aucun résultat n'a été retourné par le moteur de recherche.")
+            st.stop()
+
+        best = results[0]
+        second_best = results[1] if len(results) > 1 else None
+        third_best = results[2] if len(results) > 2 else None
+        source_artist, source_title = _extract_artist_and_title(
+            source.source_display_name or source.query_path
+        )
+
+        rows = self._build_result_rows(results)
+        df_results = pd.DataFrame(rows)
+        _update_internal_dataframe_from_results(df_results, source_artist, source_title)
+
+        return ArtworkResultsContext(
+            query_path=source.query_path,
+            source_display_name=source.source_display_name,
+            source_artist=source_artist,
+            source_title=source_title,
+            results=results,
+            rows=rows,
+            df_results=df_results,
+            best=best,
+            second_best=second_best,
+            third_best=third_best,
+        )
+
+    def _build_result_rows(self, results: list[dict[str, object]]) -> list[dict[str, object]]:
+        """
+        Traduit les résultats bruts du moteur en lignes orientées interface.
+
+        Le moteur expose une structure compacte ; l'UI a besoin au contraire de
+        champs explicites et déjà formatés pour éviter de refaire les mêmes
+        transformations à plusieurs endroits.
+        """
+        rows: list[dict[str, object]] = []
+        for i, res in enumerate(results):
+            artist, title = _extract_artist_and_title(res["filepath"])
+            rows.append(
+                {
+                    "rang": i + 1,
+                    "artiste": artist,
+                    "tableau": title,
+                    "style": res["style"],
+                    "similarité": round(float(res["similarity"]), 4),
+                    "fichier": Path(str(res["filepath"])).name,
+                    "chemin": str(res["filepath"]),
+                }
+            )
+        return rows
+
+    # ---------------------------------------------------------------------
+    # SECTION 4 - RENDU UI PRINCIPAL : SOURCE, IA, COMPARAISON, TABLEAU
+    # ---------------------------------------------------------------------
+    def _render_source_section(self, context: ArtworkResultsContext) -> None:
+        """
+        Rend le cartouche de l'image source et son style suggéré.
+        """
+        st.subheader("Image source")
+        source_image_width = _compute_source_image_display_width(context.query_path)
+        st.image(context.query_path, caption="Image requête", width=source_image_width)
+
+        st.markdown(
+            f"""
+            <p style="line-height:1.1; margin:0;">
+                <strong>{context.source_artist}</strong><br>
+                <em>{context.source_title}</em>
+            </p>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            f"""
+            <div class="museum-style-chip">
+                Style suggéré • {context.best['style']}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    def _build_ai_analysis_state(
+        self,
+        context: ArtworkResultsContext,
+        config: AppConfig,
+    ) -> AIAnalysisState:
+        """
+        Prépare et, si nécessaire, exécute la phase d'analyse IA.
+
+        Cette méthode concentre :
+        - l'activation UI ;
+        - la préparation des oeuvres candidates ;
+        - l'appel potentiellement coûteux à l'agent ;
+        - la capture des erreurs sans interrompre le reste de l'app.
+        """
+        # REVIEW NOTE:
+        # Le cache IA est indexé par :
+        # - la liste d'oeuvres candidates sérialisée ;
+        # - l'oeuvre d'intérêt ;
+        # - le profil IA.
+        # Cela évite un bug classique où un changement de profil réutiliserait
+        # une ancienne réponse générée avec un autre prompt.
+        show_ai_analyses = False
+        if config.ai_agent_enabled:
+            show_ai_analyses = st.checkbox(
+                "Afficher les analyses IA sous les tableaux",
+                value=False,
+                key="show_ai_analyses",
+            )
+
+        artwork_of_interest = " ".join(
+            part for part in [str(context.source_artist).strip(), str(context.source_title).strip()] if part
+        )
+        candidates_df = pd.DataFrame(
+            [{"Artiste": row["artiste"], "Titre": row["tableau"], "Année": None} for row in context.rows]
+        )
+
+        payload: dict[str, str] | None = None
+        error: str | None = None
+        enabled = config.ai_agent_enabled and show_ai_analyses
+
+        if enabled and not candidates_df.empty:
+            candidates_json = json.dumps(candidates_df.to_dict(orient="records"), ensure_ascii=False)
+            ai_progress_text = st.empty()
+            ai_progress_bar = st.progress(0)
+            try:
+                ai_progress_text.caption("Chargement des analyses IA : préparation des œuvres")
+                ai_progress_bar.progress(0.2)
+                ai_progress_text.caption("Chargement des analyses IA : envoi de la requête")
+                ai_progress_bar.progress(0.45)
+                payload = _get_cached_ai_analysis(
+                    candidates_json,
+                    artwork_of_interest,
+                    config.ai_profile_name,
+                )
+                ai_progress_text.caption("Chargement des analyses IA : extraction des chapitres")
+                ai_progress_bar.progress(0.8)
+                _extract_chapters_payload(payload["final_output"])
+                ai_progress_text.caption("Chargement des analyses IA : terminé")
+                ai_progress_bar.progress(1.0)
+            except Exception as exc:
+                error = str(exc)
+            finally:
+                ai_progress_text.empty()
+                ai_progress_bar.empty()
+
+        return AIAnalysisState(
+            enabled=enabled,
+            profile_name=config.ai_profile_name,
+            payload=payload,
+            error=error,
+            artwork_of_interest=artwork_of_interest,
+            candidates_df=candidates_df,
+        )
+
+    def _render_source_ai_section(self, context: ArtworkResultsContext, ai_state: AIAnalysisState) -> None:
+        """
+        Affiche l'analyse IA dédiée à l'oeuvre source.
+
+        Important : ce bloc n'affiche rien tant que le mapping source -> chapitre
+        n'a pas été résolu de façon fiable.
+        """
+        if not ai_state.enabled or ai_state.payload is None:
+            return
+
+        source_analysis = _match_source_artwork_analysis(
+            ai_state.payload["final_output"],
+            context.source_artist,
+            context.source_title,
+            ai_state.artwork_of_interest,
+            context.source_display_name,
+        )
+        if not source_analysis:
+            return
+
+        with st.expander(
+            f"Analyse IA ({ai_state.profile_name}) de l'image requête",
+            expanded=False,
+        ):
+            st.markdown(
+                f"""
+                <div style="
+                    margin-top: 0.2rem;
+                    padding: 0.9rem 1rem;
+                    border: 1px solid rgba(17, 17, 17, 0.1);
+                    border-radius: 10px;
+                    background: rgba(246, 243, 238, 0.72);
+                    color: #1d1d1d;
+                    line-height: 1.55;
+                    font-size: 0.92rem;
+                ">
+                    {_analysis_text_to_html(source_analysis)}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    def _render_visual_comparison(self, context: ArtworkResultsContext) -> None:
+        """
+        Affiche les cartes des oeuvres similaires et gère le "re-click" d'une
+        oeuvre comme nouvelle source.
+        """
+        st.subheader("Comparaison visuelle")
+        cols = st.columns(min(4, len(context.results)))
+
+        for i, res in enumerate(context.results):
+            artist, title = _extract_artist_and_title(res["filepath"])
+            with cols[i % len(cols)]:
+                st.image(
+                    res["filepath"],
+                    caption=f"Top {i + 1} — {res['style']} ({res['similarity']:.3f})",
+                    width="stretch",
+                )
                 st.markdown(
                     f"""
-                    <div style="
-                        margin-top: 0.2rem;
-                        padding: 0.9rem 1rem;
-                        border: 1px solid rgba(17, 17, 17, 0.1);
-                        border-radius: 10px;
-                        background: rgba(246, 243, 238, 0.72);
-                        color: #1d1d1d;
-                        line-height: 1.55;
-                        font-size: 0.92rem;
-                    ">
-                        {_analysis_text_to_html(source_analysis)}
-                    </div>
+                    <p style="line-height:1.1; margin:0;">
+                        <strong>{artist}</strong>
+                    </p>
                     """,
                     unsafe_allow_html=True,
                 )
 
-    # -------------------------------------------------------------------------
-    # Affichage des résultats visuels
-    # -------------------------------------------------------------------------
-    st.subheader("Comparaison visuelle")
-    # Sous-titre de la section qui montre les œuvres similaires.
+                if st.button(
+                    f"*{title}*",
+                    key=f"use-as-source-{i}",
+                    help="Cliquer pour charger cette œuvre comme nouvelle image source",
+                ):
+                    st.session_state["reset_gradcam_history"] = True
+                    st.session_state["reset_ai_analyses"] = True
+                    st.session_state["source_mode"] = "gallery"
+                    st.session_state["source_image_path"] = str(res["filepath"])
+                    st.session_state["source_image_name"] = Path(str(res["filepath"])).name
+                    st.rerun()
 
-    cols = st.columns(min(4, len(results)))
-    # Crée un ensemble de colonnes Streamlit pour afficher les résultats côte à côte.
-    # min(4, len(results)) permet de ne pas créer plus de colonnes qu'il n'y a de résultats,
-    # tout en limitant l'affichage à 4 colonnes maximum.
+    def _render_global_ai_section(
+        self,
+        context: ArtworkResultsContext,
+        ai_state: AIAnalysisState,
+    ) -> None:
+        """
+        Rend le panneau d'analyses IA des résultats et la synthèse globale.
 
-    for i, res in enumerate(results):
-        # Parcourt chaque résultat avec son indice i.
-        # `enumerate` est utile ici car on a besoin à la fois :
-        # - de la donnée `res`,
-        # - et du rang `i` pour afficher "Top 1", "Top 2", etc.
+        Cette section consomme le même payload IA que le cartouche source mais
+        avec un mapping différent : ici on redistribue l'analyse par oeuvre
+        candidate, puis on extrait la conclusion globale.
+        """
+        if not ai_state.enabled:
+            return
 
-        artist, title = _extract_artist_and_title(res["filepath"])
-        # Tente d'extraire artiste et titre depuis le nom de fichier du résultat.
-
-        with cols[i % len(cols)]:
-            # Choisit la colonne dans laquelle afficher ce résultat.
-            # Le modulo permet de répartir les cartes dans les colonnes disponibles.
-            # Ici, comme le nombre de résultats est k=4, cela correspond souvent à une colonne par résultat.
-
-            st.image(
-                res["filepath"],
-                caption=f"Top {i + 1} — {res['style']} ({res['similarity']:.3f})",
-                width="stretch",
-            )
-            # Affiche l'image candidate.
-            # res["filepath"] est son chemin.
-            # La légende montre :
-            # - son rang (Top 1, Top 2, ...)
-            # - son style
-            # - son score de similarité formaté à 3 décimales.
-            # width="stretch" demande à Streamlit d'occuper la largeur du conteneur.
-
-            st.markdown(
-                f"""
-                <p style="line-height:1.1; margin:0;">
-                    <strong>{artist}</strong>
-                </p>
-                """,
-                unsafe_allow_html=True
-            )
-
-            if st.button(
-                f"*{title}*",
-                key=f"use-as-source-{i}",
-                help="Cliquer pour charger cette œuvre comme nouvelle image source",
-            ):
-                st.session_state["reset_gradcam_history"] = True
-                st.session_state["reset_ai_analyses"] = True
-                st.session_state["source_mode"] = "gallery"
-                st.session_state["source_image_path"] = str(res["filepath"])
-                st.session_state["source_image_name"] = Path(str(res["filepath"])).name
-                st.rerun()
-            # Le titre devient cliquable : un clic relance la recherche
-            # avec cette œuvre comme nouvelle image source.
-
-    if ai_agent_enabled and should_run_ai_analysis:
         with st.expander(
-            f"Analyses IA ({ai_profile_name}) et comparaison stylistique globale",
+            f"Analyses IA ({ai_state.profile_name}) et comparaison stylistique globale",
             expanded=False,
         ):
-            if ai_analysis_payload is not None:
-                analysis_cols = st.columns(min(4, len(rows)))
-                for i, row in enumerate(rows):
+            if ai_state.payload is not None:
+                analysis_cols = st.columns(min(4, len(context.rows)))
+                for i, row in enumerate(context.rows):
                     artwork_analysis = _match_artwork_analysis(
-                        ai_analysis_payload["final_output"],
+                        ai_state.payload["final_output"],
                         row["artiste"],
                         row["tableau"],
                         i,
@@ -2479,7 +2681,7 @@ if retriever is not None:
 
                 st.markdown("---")
                 st.markdown("**Comparaison stylistique globale**")
-                global_analysis = _extract_global_analysis(ai_analysis_payload["final_output"])
+                global_analysis = _extract_global_analysis(ai_state.payload["final_output"])
                 if global_analysis:
                     st.markdown(
                         f"""
@@ -2499,60 +2701,50 @@ if retriever is not None:
                     )
                 else:
                     st.info("La comparaison stylistique globale n'a pas été trouvée dans la réponse IA.")
-            elif ai_analysis_error is not None:
-                st.warning(f"Analyse IA indisponible : {ai_analysis_error}")
+            elif ai_state.error is not None:
+                st.warning(f"Analyse IA indisponible : {ai_state.error}")
 
-    # -------------------------------------------------------------------------
-    # Tableau récapitulatif
-    # -------------------------------------------------------------------------
-    st.subheader("Résumé des résultats")
-    # Introduit la section tabulaire.
+    def _render_summary(self, df_results: pd.DataFrame) -> None:
+        """
+        Rend le tableau récapitulatif brut des résultats du retrieval.
+        """
+        st.subheader("Résumé des résultats")
+        st.dataframe(df_results, width="stretch", hide_index=True)
 
-    st.dataframe(df_results, width="stretch", hide_index=True)
-    # Affiche le DataFrame dans Streamlit.
-    # width="stretch" utilise toute la largeur disponible.
-    # hide_index=True masque l'index par défaut de Pandas, peu utile ici.
+    # ---------------------------------------------------------------------
+    # SECTION 5 - VISUALISATIONS : UMAP ET REPÈRES VISUELS
+    # ---------------------------------------------------------------------
+    def _render_umap(self, context: ArtworkResultsContext) -> None:
+        """
+        Rend la visualisation UMAP interactive si le bundle latent est disponible.
 
-    # -------------------------------------------------------------------------
-    # Visualisation UMAP
-    # -------------------------------------------------------------------------
-    if latent_error is not None:
-        st.warning(f"Visualisation UMAP indisponible : {latent_error}")
-        # Si le chargement UMAP a échoué plus tôt, on affiche l'erreur ici.
+        Le rôle de cette méthode est surtout de préparer un DataFrame orienté
+        visualisation puis de déléguer le marquage des points importants
+        (upload, top-1, top-2, top-3).
+        """
+        if self.latent_error is not None:
+            st.warning(f"Visualisation UMAP indisponible : {self.latent_error}")
+            return
 
-    elif latent_bundle is not None:
+        if self.latent_bundle is None:
+            return
+
         with st.expander("Espace latent (UMAP interactif)", expanded=False):
-            latent_2d, labels, classnames, filenames = latent_bundle
-            # Décompacte les 4 éléments retournés par load_latent_and_meta().
-
+            latent_2d, labels, classnames, filenames = self.latent_bundle
             style_names = _build_style_names(labels, classnames)
-            # Convertit les labels numériques en noms de styles lisibles.
-            # C'est un point pédagogique important :
-            # les modèles et fichiers intermédiaires manipulent volontiers des identifiants numériques,
-            # alors que l'interface doit toujours afficher des informations interprétables humainement.
-
             short_filenames = [Path(str(fp)).name for fp in filenames]
-            # Crée une version courte des noms de fichiers, sans les chemins,
-            # pour un affichage plus propre dans les tooltips.
-
             artists = []
             titles = []
-            # Prépare deux listes qui contiendront artiste et titre pour chaque point UMAP.
 
             for fp in filenames:
                 artist, title = _extract_artist_and_title(str(fp))
-                # Extrait artiste et titre depuis chaque nom de fichier.
-
                 artists.append(artist)
                 titles.append(title)
-                # Remplit les listes pour les injecter ensuite dans le DataFrame.
 
             similarity_by_filepath = {
                 str(res["filepath"]): f"{float(res['similarity']) * 100:.1f}%"
-                for res in results
+                for res in context.results
             }
-            # Associe chaque résultat retourné à son score de similarité formaté en pourcentage.
-            # Les autres points de l'UMAP n'ont pas de score lié à la requête courante.
 
             tooltip_html = []
             for fp, style, artist, title in zip(filenames, style_names, artists, titles):
@@ -2565,382 +2757,267 @@ if retriever is not None:
                 if similarity:
                     lines.append(f"<b>Similarité:</b> {similarity}")
                 tooltip_html.append("<br>".join(lines))
-            # Construit un contenu de tooltip sur mesure pour n'afficher la similarité
-            # que sur les points concernés par la requête courante.
 
             df_umap = pd.DataFrame(
                 {
                     "x": latent_2d[:, 0],
-                    # Première coordonnée UMAP de chaque point.
-
                     "y": latent_2d[:, 1],
-                    # Deuxième coordonnée UMAP de chaque point.
-
                     "Label": labels,
-                    # Label brut de classe.
-
                     "Style": style_names,
-                    # Nom lisible du style.
-
                     "Artiste": artists,
-                    # Artiste extrait du nom de fichier.
-
                     "Tableau": titles,
-                    # Titre de l'œuvre.
-
                     "Fichier": short_filenames,
-                    # Nom de fichier court.
-
                     "tooltip_html": tooltip_html,
-                    # Tooltip HTML complet utilisé par Plotly pour chaque point.
-
                     "filepath": [str(fp) for fp in filenames],
-                    # Chemin complet, potentiellement utile pour retrouver un point précis.
                 }
             )
-            # On rassemble ici toutes les données utiles dans un DataFrame unique.
-            # Ce choix simplifie beaucoup la suite, car Plotly Express et les filtres Pandas
-            # travaillent très naturellement avec ce format tabulaire.
-            # En d'autres termes : on convertit des tableaux NumPy "techniques"
-            # en structure "métier / interface" plus facile à manipuler.
 
             styles_disponibles = sorted(df_umap["Style"].astype(str).unique().tolist())
-            # Récupère la liste unique des styles présents dans le DataFrame,
-            # convertie en chaînes, puis triée alphabétiquement.
-            # Cela sert de base aux filtres interactifs.
-
             styles_selectionnes = st.multiselect(
                 "Filtrer les styles affichés dans l'UMAP",
                 options=styles_disponibles,
                 default=styles_disponibles,
             )
-            # Affiche une sélection multiple permettant à l'utilisateur de choisir
-            # quels styles afficher.
-            # Par défaut, tous les styles sont sélectionnés.
 
             df_umap_filtered = df_umap[df_umap["Style"].isin(styles_selectionnes)].copy()
-            # Filtre les points UMAP selon les styles choisis.
-            # .copy() évite certains avertissements Pandas liés aux vues/slices.
-            # C'est aussi plus sûr si l'on souhaite modifier ensuite le DataFrame filtré
-            # sans impacter accidentellement l'original.
-
             if df_umap_filtered.empty:
                 st.warning("Aucun point à afficher : aucun style sélectionné.")
-                # Si l'utilisateur désélectionne tout, on l'indique explicitement.
-            else:
-                fig = px.scatter(
-                    df_umap_filtered,
-                    x="x",
-                    y="y",
-                    color="Style",
-                    hover_data={
-                        "x": False,
-                        "y": False,
-                        "Label": False,
-                        "Style": False,
-                        "Artiste": False,
-                        "Tableau": False,
-                        "Fichier": False,
-                        "tooltip_html": False,
-                        "filepath": False,
-                    },
-                    custom_data=["tooltip_html"],
-                    opacity=0.45,
-                    title="Projection UMAP des embeddings",
-                )
-                # Crée un nuage de points interactif Plotly.
-                # color="Style" colore les points par style.
-                # hover_data permet de choisir précisément quelles colonnes apparaissent au survol.
-                # x, y, Label, filepath, etc. peuvent être masqués pour garder un tooltip lisible.
-                # opacity=0.45 rend les points semi-transparents, utile quand ils se chevauchent.
-                # Plotly Express est très pratique ici parce qu'il permet de produire
-                # rapidement une visualisation riche à partir d'un DataFrame et de quelques arguments.
+                return
 
-                fig.update_traces(
-                    marker=dict(size=7),
-                    hovertemplate="%{customdata[0]}<extra></extra>",
-                )
-                # Réduit / fixe la taille des marqueurs pour améliorer la lisibilité du nuage.
+            fig = px.scatter(
+                df_umap_filtered,
+                x="x",
+                y="y",
+                color="Style",
+                hover_data={
+                    "x": False,
+                    "y": False,
+                    "Label": False,
+                    "Style": False,
+                    "Artiste": False,
+                    "Tableau": False,
+                    "Fichier": False,
+                    "tooltip_html": False,
+                    "filepath": False,
+                },
+                custom_data=["tooltip_html"],
+                opacity=0.45,
+                title="Projection UMAP des embeddings",
+            )
+            fig.update_traces(marker=dict(size=7), hovertemplate="%{customdata[0]}<extra></extra>")
+            self._add_umap_highlights(fig, context, latent_2d, filenames)
+            fig.update_layout(
+                xaxis_title="Dimension UMAP 1",
+                yaxis_title="Dimension UMAP 2",
+                legend_title="Styles",
+                height=700,
+                hoverlabel=dict(font=dict(size=16)),
+            )
 
-                upload_anchor_points = []
-                for res in results[:3]:
-                    idx_res = _find_best_index(filenames, str(res["filepath"]))
-                    if idx_res is None:
-                        continue
-                    weight = max(float(res["similarity"]), 0.0)
-                    upload_anchor_points.append(
-                        (
-                            float(latent_2d[idx_res, 0]),
-                            float(latent_2d[idx_res, 1]),
-                            weight,
-                        )
-                    )
+            st.plotly_chart(fig, width="stretch")
+            st.caption(
+                "Chaque point représente une œuvre projetée dans un espace latent 2D. "
+                "Les couleurs correspondent aux styles artistiques. "
+                "Les points annotés correspondent au tableau uploadé ainsi qu'aux meilleurs résultats top-1, top-2 et top-3."
+            )
+            st.caption(
+                "Note : la proximité visuelle dans l'UMAP ne correspond pas toujours exactement "
+                "au classement de similarité, car la projection 2D déforme partiellement "
+                "les distances calculées dans l'espace latent d'origine."
+            )
 
-                if upload_anchor_points:
-                    total_weight = sum(weight for _, _, weight in upload_anchor_points)
-                    if total_weight <= 0:
-                        total_weight = float(len(upload_anchor_points))
-                        upload_anchor_points = [(x, y, 1.0) for x, y, _ in upload_anchor_points]
+    def _add_umap_highlights(self, fig, context: ArtworkResultsContext, latent_2d, filenames) -> None:
+        """
+        Ajoute les repères métier sur le scatter UMAP.
 
-                    x_upload = sum(x * weight for x, _, weight in upload_anchor_points) / total_weight
-                    y_upload = sum(y * weight for _, y, weight in upload_anchor_points) / total_weight
+        L'upload n'existe pas directement dans la projection ; sa position est
+        estimée à partir des meilleurs voisins connus dans l'espace latent.
+        """
+        # REVIEW NOTE:
+        # Le point "Upload" n'est pas un embedding réellement projeté dans
+        # l'UMAP chargé depuis disque. On construit donc une approximation
+        # pondérée à partir des top voisins pour donner un repère visuel utile
+        # sans prétendre à une position exacte du tableau source.
+        upload_anchor_points = []
+        for res in context.results[:3]:
+            idx_res = _find_best_index(filenames, str(res["filepath"]))
+            if idx_res is None:
+                continue
+            weight = max(float(res["similarity"]), 0.0)
+            upload_anchor_points.append(
+                (float(latent_2d[idx_res, 0]), float(latent_2d[idx_res, 1]), weight)
+            )
 
-                    fig.add_trace(
-                        go.Scatter(
-                            x=[x_upload],
-                            y=[y_upload],
-                            mode="markers+text",
-                            name="Tableau uploadé",
-                            text=["Upload"],
-                            textposition="top left",
-                            marker=dict(
-                                size=17,
-                                symbol="star",
-                                color="#d92d20",
-                                line=dict(width=1.5, color="white"),
-                            ),
-                            hovertemplate=(
-                                "<b>Tableau uploadé</b><br>"
-                                f"Artiste: {source_artist}<br>"
-                                f"Tableau: {source_title}<br>"
-                                "Position estimée depuis les top résultats"
-                                "<extra></extra>"
-                            ),
-                            showlegend=False,
-                        )
-                    )
+        if upload_anchor_points:
+            total_weight = sum(weight for _, _, weight in upload_anchor_points)
+            if total_weight <= 0:
+                total_weight = float(len(upload_anchor_points))
+                upload_anchor_points = [(x, y, 1.0) for x, y, _ in upload_anchor_points]
 
-                    fig.add_annotation(
-                        x=x_upload,
-                        y=y_upload,
-                        text="Upload",
-                        showarrow=True,
-                        arrowhead=2,
-                        ax=28,
-                        ay=-16,
-                        bgcolor="#fef3f2",
-                        bordercolor="#d92d20",
-                        borderwidth=1,
-                    )
-                # Le point Upload est estimé à partir des meilleurs voisins déjà projetés.
-
-                idx_best = _find_best_index(filenames, str(best["filepath"]))
-                # Tente de retrouver le point UMAP correspondant au meilleur résultat top-1.
-
-                if idx_best is not None:
-                    x_best = latent_2d[idx_best, 0]
-                    # Coordonnée x du meilleur point.
-
-                    y_best = latent_2d[idx_best, 1]
-                    # Coordonnée y du meilleur point.
-
-                    best_filename = Path(str(best["filepath"])).name
-                    # Nom de fichier du meilleur résultat, sans son chemin.
-
-                    best_artist, best_title = _extract_artist_and_title(best["filepath"])
-                    # Extrait artiste et titre pour enrichir le tooltip du point mis en évidence.
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=[x_best],
-                            y=[y_best],
-                            mode="markers+text",
-                            name="Top-1 sélectionné",
-                            text=[best["style"]],
-                            textposition="top center",
-                            marker=dict(
-                                size=18,
-                                symbol="circle-open",
-                                line=dict(width=3, color="black"),
-                            ),
-                            hovertemplate=(
-                                "<b>Top-1 sélectionné</b><br>"
-                                f"Style: {best['style']}<br>"
-                                f"Artiste: {best_artist}<br>"
-                                f"Tableau: {best_title}<br>"
-                                f"Fichier: {best_filename}<br>"
-                                f"Similarité: {float(best['similarity']) * 100:.1f}%"
-                                "<extra></extra>"
-                            ),
-                            showlegend=False,
-                        )
-                    )
-                    # Ajoute une nouvelle trace Plotly pour surligner visuellement le top-1.
-                    # mode="markers+text" affiche à la fois un point et un texte.
-                    # symbol="circle-open" dessine un cercle vide autour du point.
-                    # line=dict(...) définit le contour noir épais.
-                    # hovertemplate personnalise complètement le contenu du tooltip.
-                    # <extra></extra> supprime le petit encart supplémentaire Plotly souvent peu utile.
-                    # On passe ici de Plotly Express (très pratique pour la base du graphique)
-                    # à Plotly Graph Objects (plus bas niveau) afin d'ajouter une surcouche
-                    # vraiment sur mesure.
-
-                    fig.add_annotation(
-                        x=x_best,
-                        y=y_best,
-                        text="Top 1",
-                        showarrow=True,
-                        arrowhead=2,
-                        ax=20,
-                        ay=-30,
-                        bgcolor="white",
-                        bordercolor="black",
-                        borderwidth=1,
-                    )
-                    # Ajoute une annotation textuelle avec flèche pointant vers le meilleur résultat.
-                    # ax et ay contrôlent le décalage de l'étiquette par rapport au point.
-                    # bgcolor, bordercolor et borderwidth améliorent la lisibilité de l'annotation.
-
-                if second_best is not None:
-                    idx_second = _find_best_index(filenames, str(second_best["filepath"]))
-                    # Tente de retrouver le point UMAP correspondant au deuxième meilleur résultat.
-
-                    if idx_second is not None:
-                        x_second = latent_2d[idx_second, 0]
-                        y_second = latent_2d[idx_second, 1]
-                        second_filename = Path(str(second_best["filepath"])).name
-                        second_artist, second_title = _extract_artist_and_title(second_best["filepath"])
-
-                        fig.add_trace(
-                            go.Scatter(
-                                x=[x_second],
-                                y=[y_second],
-                                mode="markers+text",
-                                name="Top-2 sélectionné",
-                                text=[second_best["style"]],
-                                textposition="bottom center",
-                                marker=dict(
-                                    size=16,
-                                    symbol="diamond-open",
-                                    line=dict(width=3, color="#b54708"),
-                                ),
-                                hovertemplate=(
-                                    "<b>Top-2 sélectionné</b><br>"
-                                    f"Style: {second_best['style']}<br>"
-                                    f"Artiste: {second_artist}<br>"
-                                    f"Tableau: {second_title}<br>"
-                                    f"Fichier: {second_filename}<br>"
-                                    f"Similarité: {float(second_best['similarity']) * 100:.1f}%"
-                                    "<extra></extra>"
-                                ),
-                                showlegend=False,
-                            )
-                        )
-
-                        fig.add_annotation(
-                            x=x_second,
-                            y=y_second,
-                            text="Top 2",
-                            showarrow=True,
-                            arrowhead=2,
-                            ax=-24,
-                            ay=34,
-                            bgcolor="#fff7ed",
-                            bordercolor="#b54708",
-                            borderwidth=1,
-                        )
-                        # Ajoute un second repère, visuellement distinct du top-1.
-
-                if third_best is not None:
-                    idx_third = _find_best_index(filenames, str(third_best["filepath"]))
-                    # Tente de retrouver le point UMAP correspondant au troisième meilleur résultat.
-
-                    if idx_third is not None:
-                        x_third = latent_2d[idx_third, 0]
-                        y_third = latent_2d[idx_third, 1]
-                        third_filename = Path(str(third_best["filepath"])).name
-                        third_artist, third_title = _extract_artist_and_title(third_best["filepath"])
-
-                        fig.add_trace(
-                            go.Scatter(
-                                x=[x_third],
-                                y=[y_third],
-                                mode="markers+text",
-                                name="Top-3 sélectionné",
-                                text=[third_best["style"]],
-                                textposition="middle right",
-                                marker=dict(
-                                    size=15,
-                                    symbol="square-open",
-                                    line=dict(width=3, color="#175cd3"),
-                                ),
-                                hovertemplate=(
-                                    "<b>Top-3 sélectionné</b><br>"
-                                    f"Style: {third_best['style']}<br>"
-                                    f"Artiste: {third_artist}<br>"
-                                    f"Tableau: {third_title}<br>"
-                                    f"Fichier: {third_filename}<br>"
-                                    f"Similarité: {float(third_best['similarity']) * 100:.1f}%"
-                                    "<extra></extra>"
-                                ),
-                                showlegend=False,
-                            )
-                        )
-
-                        fig.add_annotation(
-                            x=x_third,
-                            y=y_third,
-                            text="Top 3",
-                            showarrow=True,
-                            arrowhead=2,
-                            ax=34,
-                            ay=18,
-                            bgcolor="#eff8ff",
-                            bordercolor="#175cd3",
-                            borderwidth=1,
-                        )
-                        # Ajoute un troisième repère distinct pour le top-3.
-
-                fig.update_layout(
-                    xaxis_title="Dimension UMAP 1",
-                    yaxis_title="Dimension UMAP 2",
-                    legend_title="Styles",
-                    height=700,
-                    hoverlabel=dict(
-                        font=dict(size=16),
+            x_upload = sum(x * weight for x, _, weight in upload_anchor_points) / total_weight
+            y_upload = sum(y * weight for _, y, weight in upload_anchor_points) / total_weight
+            fig.add_trace(
+                go.Scatter(
+                    x=[x_upload],
+                    y=[y_upload],
+                    mode="markers+text",
+                    name="Tableau uploadé",
+                    text=["Upload"],
+                    textposition="top left",
+                    marker=dict(
+                        size=17,
+                        symbol="star",
+                        color="#d92d20",
+                        line=dict(width=1.5, color="white"),
                     ),
+                    hovertemplate=(
+                        "<b>Tableau uploadé</b><br>"
+                        f"Artiste: {context.source_artist}<br>"
+                        f"Tableau: {context.source_title}<br>"
+                        "Position estimée depuis les top résultats"
+                        "<extra></extra>"
+                    ),
+                    showlegend=False,
                 )
-                # Personnalise la mise en page du graphique :
-                # titres d'axes, titre de légende et hauteur globale du composant.
+            )
+            fig.add_annotation(
+                x=x_upload,
+                y=y_upload,
+                text="Upload",
+                showarrow=True,
+                arrowhead=2,
+                ax=28,
+                ay=-16,
+                bgcolor="#fef3f2",
+                bordercolor="#d92d20",
+                borderwidth=1,
+            )
 
-                st.plotly_chart(fig, width="stretch")
-                # Affiche le graphique interactif dans Streamlit.
-                # width="stretch" permet au graphique d'occuper toute la largeur disponible.
+        self._add_result_highlight(
+            fig, latent_2d, filenames, context.best, "Top 1", "Top-1 sélectionné",
+            "top center", "circle-open", "black", 18, 20, -30, "white"
+        )
+        if context.second_best is not None:
+            self._add_result_highlight(
+                fig, latent_2d, filenames, context.second_best, "Top 2", "Top-2 sélectionné",
+                "bottom center", "diamond-open", "#b54708", 16, -24, 34, "#fff7ed"
+            )
+        if context.third_best is not None:
+            self._add_result_highlight(
+                fig, latent_2d, filenames, context.third_best, "Top 3", "Top-3 sélectionné",
+                "middle right", "square-open", "#175cd3", 15, 34, 18, "#eff8ff"
+            )
 
-                st.caption(
-                    "Chaque point représente une œuvre projetée dans un espace latent 2D. "
-                    "Les couleurs correspondent aux styles artistiques. "
-                    "Les points annotés correspondent au tableau uploadé ainsi qu'aux meilleurs résultats top-1, top-2 et top-3."
-                )
-                # Ajoute une légende explicative sous le graphique pour aider l'utilisateur
-                # à interpréter la visualisation.
+    def _add_result_highlight(
+        self,
+        fig,
+        latent_2d,
+        filenames,
+        result: dict[str, object],
+        annotation_text: str,
+        trace_name: str,
+        text_position: str,
+        symbol: str,
+        line_color: str,
+        marker_size: int,
+        ax: int,
+        ay: int,
+        annotation_bg: str,
+    ) -> None:
+        """
+        Factorise l'ajout d'un repère Plotly pour un résultat important.
 
-                st.caption(
-                    "Note : la proximité visuelle dans l'UMAP ne correspond pas toujours exactement "
-                    "au classement de similarité, car la projection 2D déforme partiellement "
-                    "les distances calculées dans l'espace latent d'origine."
-                )
+        Cette extraction évite de dupliquer trois fois la même logique pour
+        top-1 / top-2 / top-3, ce qui facilite les futurs ajustements visuels.
+        """
+        idx_result = _find_best_index(filenames, str(result["filepath"]))
+        if idx_result is None:
+            return
 
-    show_gradcam_history = st.checkbox(
-        "Grad-CAM history",
-        key="show_gradcam_history",
-    )
-    # Ajoute la case à cocher entre le bloc UMAP et l'explication visuelle.
-    # Cette option déclenche potentiellement un calcul coûteux, d'où son caractère optionnel.
+        x_value = latent_2d[idx_result, 0]
+        y_value = latent_2d[idx_result, 1]
+        filename = Path(str(result["filepath"])).name
+        artist, title = _extract_artist_and_title(result["filepath"])
 
-    available_layers: list[str] = []
-    if show_gradcam_history and retriever is not None:
-        available_layers = retriever.available_explanation_layers()
-        if not available_layers:
-            st.warning("Aucune couche compatible n'a été trouvée pour Grad-CAM++.")
+        fig.add_trace(
+            go.Scatter(
+                x=[x_value],
+                y=[y_value],
+                mode="markers+text",
+                name=trace_name,
+                text=[result["style"]],
+                textposition=text_position,
+                marker=dict(size=marker_size, symbol=symbol, line=dict(width=3, color=line_color)),
+                hovertemplate=(
+                    f"<b>{trace_name}</b><br>"
+                    f"Style: {result['style']}<br>"
+                    f"Artiste: {artist}<br>"
+                    f"Tableau: {title}<br>"
+                    f"Fichier: {filename}<br>"
+                    f"Similarité: {float(result['similarity']) * 100:.1f}%"
+                    "<extra></extra>"
+                ),
+                showlegend=False,
+            )
+        )
+        fig.add_annotation(
+            x=x_value,
+            y=y_value,
+            text=annotation_text,
+            showarrow=True,
+            arrowhead=2,
+            ax=ax,
+            ay=ay,
+            bgcolor=annotation_bg,
+            bordercolor=line_color,
+            borderwidth=1,
+        )
 
-    # -------------------------------------------------------------------------
-    # Explication visuelle avec Grad-CAM++
-    # -------------------------------------------------------------------------
-    if show_gradcam_history and available_layers:
-        # Ce bloc n'est exécuté que si l'utilisateur a coché la case correspondante.
-        # On garde ce calcul optionnel car Grad-CAM++ peut être plus lent
-        # que la simple recherche des voisins les plus proches.
+    # ---------------------------------------------------------------------
+    # SECTION 6 - VISUALISATION EXPLICATIVE : GRAD-CAM
+    # ---------------------------------------------------------------------
+    def _render_gradcam(self, context: ArtworkResultsContext, gradcam_pair_count: int) -> None:
+        """
+        Point d'entrée UI de la section Grad-CAM.
+
+        Cette méthode décide seulement si l'explication visuelle peut être
+        lancée. Le calcul effectif est délégué à `_render_gradcam_history`.
+        """
+        show_gradcam_history = st.checkbox("Grad-CAM history", key="show_gradcam_history")
+
+        available_layers: list[str] = []
+        if show_gradcam_history and self.retriever is not None:
+            available_layers = self.retriever.available_explanation_layers()
+            if not available_layers:
+                st.warning("Aucune couche compatible n'a été trouvée pour Grad-CAM++.")
+
+        if show_gradcam_history and available_layers:
+            self._render_gradcam_history(context, available_layers, gradcam_pair_count)
+        else:
+            st.info(
+                "Active l'option Grad-CAM++ pour visualiser les zones qui "
+                "contribuent à la similarité du top-1."
+            )
+
+    def _render_gradcam_history(
+        self,
+        context: ArtworkResultsContext,
+        available_layers: list[str],
+        gradcam_pair_count: int,
+    ) -> None:
+        """
+        Exécute et rend l'historique des cartes Grad-CAM++.
+
+        Les couches sont échantillonnées sur l'intervalle du réseau afin de
+        montrer différentes profondeurs de représentation, plutôt qu'un seul
+        niveau d'explication.
+        """
+        # REVIEW NOTE:
+        # Le choix des couches n'est pas une simple liste fixe :
+        # on répartit aléatoirement les indices sur l'intervalle 1..245 pour
+        # varier la lecture d'une exécution à l'autre tout en couvrant le réseau
+        # de manière relativement homogène.
+        assert self.retriever is not None
 
         try:
             history_layer_numbers = _build_random_gradcam_layer_numbers(
@@ -2948,7 +3025,6 @@ if retriever is not None:
                 min_layer=1,
                 max_layer=245,
             )
-
             history_layers, missing_history_layers = _select_explanation_layers(
                 available_layers,
                 history_layer_numbers,
@@ -2973,9 +3049,9 @@ if retriever is not None:
                     history_explanations.append(
                         (
                             layer_number,
-                            retriever.explain_similarity(
-                                query_path,
-                                best["filepath"],
+                            self.retriever.explain_similarity(
+                                context.query_path,
+                                context.best["filepath"],
                                 target_layer_name=layer_name,
                             ),
                         )
@@ -2984,11 +3060,8 @@ if retriever is not None:
 
                 history_progress_text.empty()
                 history_progress_bar.empty()
-                # Calcule l'historique complet pour les couches demandées.
 
-            best_artist, best_title = _extract_artist_and_title(best["filepath"])
-            # Extrait l'artiste et le titre du meilleur résultat pour les afficher textuellement.
-
+            best_artist, best_title = _extract_artist_and_title(context.best["filepath"])
             with st.expander("Explication visuelle (Grad-CAM++)", expanded=False):
                 st.markdown(
                     f"""
@@ -2996,14 +3069,9 @@ if retriever is not None:
                         <strong>Top-1 sélectionné</strong>
                         <em>{best_artist} • {best_title}</em>
                     </div>
-                    """
-                    ,
+                    """,
                     unsafe_allow_html=True,
                 )
-                # Affiche des informations textuelles sur le top-1.
-                # À noter : en Markdown classique, des sauts de ligne plus explicites
-                # ou des puces pourraient encore améliorer le rendu.
-
                 st.markdown("**Grad-CAM history**")
                 st.caption(
                     f"{len(history_explanations)} paires de cartes affichees pour les couches "
@@ -3018,7 +3086,6 @@ if retriever is not None:
                     layer_name = explanation["target_layer"]
                     layer_label = layer_labels.get(layer_name, layer_name)
                     c1, c2 = st.columns(2)
-
                     with c1:
                         st.image(
                             explanation["query_overlay"],
@@ -3028,7 +3095,6 @@ if retriever is not None:
                             ),
                             width="stretch",
                         )
-
                     with c2:
                         st.image(
                             explanation["candidate_overlay"],
@@ -3038,28 +3104,28 @@ if retriever is not None:
                             ),
                             width="stretch",
                         )
-
         except Exception as exc:
             st.warning(f"Grad-CAM++ indisponible : {exc}")
-            # Si le calcul Grad-CAM++ échoue, on n'interrompt pas toute l'application.
-            # On affiche simplement un avertissement explicatif.
 
-    else:
-        st.info(
-            "Active l'option Grad-CAM++ pour visualiser les zones qui "
-            "contribuent à la similarité du top-1."
+    # ---------------------------------------------------------------------
+    # SECTION 7 - ÉTATS DE GARDE / FALLBACKS D'ACCUEIL
+    # ---------------------------------------------------------------------
+    def _render_unavailable_state(self, uploaded) -> None:
+        """
+        Gère les états d'accueil / indisponibilité quand le moteur n'est pas prêt.
+        """
+        upload_disabled = bool(
+            (self.retriever_error is not None)
+            or (not bool(self.runtime_status and self.runtime_status["upload_enabled"]))
         )
-        # Si l'option n'est pas activée, on affiche un message informatif pour guider l'utilisateur.
+        if uploaded is None:
+            if upload_disabled:
+                st.info("Upload désactivé tant que le modèle, les embeddings et `data/out` ne sont pas synchronisés.")
+            else:
+                st.info("Charge une image pour lancer la recherche.")
+            return
 
-elif uploaded is None:
-    if upload_disabled:
-        st.info("Upload désactivé tant que le modèle, les embeddings et `data/out` ne sont pas synchronisés.")
-    else:
-        st.info("Charge une image pour lancer la recherche.")
-    # Cas initial : aucun fichier n'a encore été uploadé.
-    # On affiche simplement une consigne à l'utilisateur.
-    # Ce `else` correspond à l'état d'accueil de l'application :
-    # l'interface est chargée, les ressources sont prêtes, mais aucun workflow
-    # de recherche n'a encore été déclenché.
-else:
-    st.error("Le moteur n'est pas prêt. Vérifie le modèle, les embeddings et data/out.")
+        st.error("Le moteur n'est pas prêt. Vérifie le modèle, les embeddings et data/out.")
+
+
+ArtXplainApp().run()
