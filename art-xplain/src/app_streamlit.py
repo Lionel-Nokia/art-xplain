@@ -11,6 +11,7 @@ import sys
 import atexit
 import asyncio
 import json
+import random
 import re
 import unicodedata
 from html import escape
@@ -46,6 +47,7 @@ import plotly.graph_objects as go
 # par exemple pour surligner le meilleur résultat (top-1) dans l'UMAP.
 
 import streamlit as st
+from PIL import Image
 # Streamlit est le framework web utilisé pour créer l'application interactive.
 # Toutes les instructions d'interface passent par l'objet st :
 # st.title, st.image, st.dataframe, st.checkbox, st.file_uploader, etc.
@@ -101,6 +103,7 @@ APP_LOGO_PATH = ASSETS_DIR / "artxplain-logo.svg"
 INTERNAL_DF_DIR = PROJECT_ROOT / "data"
 INTERNAL_DF_PATH = INTERNAL_DF_DIR / "internal_artworks.csv"
 INTERNAL_DF_COLUMNS = ["artiste", "tableau", "style", "fichier", "analyse", "similarite"]
+AI_GUIDE_PROFILE_NAME = "guide_musée"
 
 
 def _load_inline_svg(svg_path: Path) -> str:
@@ -111,6 +114,37 @@ def _load_inline_svg(svg_path: Path) -> str:
         return svg_path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return ""
+
+
+def _compute_source_image_display_width(image_path: str) -> int:
+    """
+    Calcule une largeur d'affichage raisonnable selon les proportions de l'image source.
+    """
+    fallback_width = 600
+
+    try:
+        with Image.open(image_path) as image:
+            width, height = image.size
+    except Exception:
+        return fallback_width
+
+    if width <= 0 or height <= 0:
+        return fallback_width
+
+    ratio = width / height
+
+    if ratio >= 1.6:
+        target_width = 760
+    elif ratio >= 1.15:
+        target_width = 680
+    elif ratio >= 0.85:
+        target_width = 600
+    elif ratio >= 0.6:
+        target_width = 480
+    else:
+        target_width = 380
+
+    return max(320, min(target_width, width))
 
 
 def _empty_internal_dataframe() -> pd.DataFrame:
@@ -195,7 +229,7 @@ def _normalize_lookup_text(value: object) -> str:
     text = str(value).strip().lower()
     text = unicodedata.normalize("NFKD", text)
     text = "".join(char for char in text if not unicodedata.combining(char))
-    for char in ["-", "_", "/", ",", ":", ";", ".", "(", ")", "'", '"']:
+    for char in ["-", "–", "—", "_", "/", ",", ":", ";", ".", "(", ")", "'", '"']:
         text = text.replace(char, " ")
     return " ".join(text.split())
 
@@ -241,6 +275,8 @@ def _format_analysis_text(value: object) -> str:
     """
     Convertit une structure JSON en texte lisible.
     """
+    if value is None:
+        return ""
     if isinstance(value, str):
         return _strip_http_links(value.strip())
     if isinstance(value, (int, float, bool)):
@@ -288,10 +324,28 @@ def _split_analysis_title(title: object) -> tuple[str, str]:
     Extrait artiste et tableau depuis un titre de chapitre `Artiste - Tableau`.
     """
     title_text = str(title).strip()
-    if " - " not in title_text:
-        return "", title_text
-    artist, artwork = title_text.split(" - ", 1)
-    return artist.strip(), artwork.strip()
+    for separator in [" - ", " – ", " — "]:
+        if separator in title_text:
+            artist, artwork = title_text.split(separator, 1)
+            return artist.strip(), artwork.strip()
+    return "", title_text
+
+
+def _is_global_analysis_title(title: object) -> bool:
+    """
+    Détecte un chapitre d'analyse globale / synthèse plutôt qu'une oeuvre précise.
+    """
+    normalized_title = _normalize_lookup_text(title)
+    return any(
+        marker in normalized_title
+        for marker in [
+            "proximite stylistique",
+            "analyse stylistique commune",
+            "comparaison stylistique globale",
+            "analyse globale",
+            "synthese stylistique",
+        ]
+    )
 
 
 def _clean_analysis_subtitle(text: object) -> str:
@@ -362,20 +416,99 @@ def _extract_json_payload(final_output: str) -> dict[str, object] | list[object]
     return None
 
 
-def _extract_chapters_payload(final_output: str) -> list[dict[str, object]] | None:
+def _coerce_payload_to_chapters(
+    payload: dict[str, object] | list[object] | None,
+) -> list[dict[str, object]] | None:
     """
-    Relit le JSON et retourne la liste des chapitres si présente.
+    Convertit différents schémas JSON en une liste homogène de chapitres.
     """
-    payload = _extract_json_payload(final_output)
     if payload is None:
         return None
 
     if isinstance(payload, dict):
         chapters = payload.get("chapitres")
         if isinstance(chapters, list):
-            return chapters
+            return [chapter for chapter in chapters if isinstance(chapter, dict)]
+
+        works = payload.get("oeuvres")
+        if isinstance(works, list):
+            normalized_chapters: list[dict[str, object]] = []
+            for work in works:
+                if not isinstance(work, dict):
+                    continue
+
+                artist = str(work.get("artiste", "")).strip()
+                title = str(work.get("titre", "")).strip()
+                chapter_title = " - ".join(part for part in [artist, title] if part).strip()
+                if not chapter_title:
+                    chapter_title = title or artist or "Oeuvre"
+
+                raw_analysis = work.get("analyse")
+                if isinstance(raw_analysis, dict):
+                    content = [
+                        {
+                            "sous_titre": str(key).replace("_", " ").strip().capitalize(),
+                            "texte": _format_analysis_text(value),
+                        }
+                        for key, value in raw_analysis.items()
+                        if _format_analysis_text(value)
+                    ]
+                else:
+                    content = []
+                    for key in [
+                        "contexte_historique",
+                        "specificites_stylistiques",
+                        "elements_techniques_marquants",
+                    ]:
+                        value = _format_analysis_text(work.get(key))
+                        if value:
+                            content.append(
+                                {
+                                    "sous_titre": key.replace("_", " ").strip().capitalize(),
+                                    "texte": value,
+                                }
+                            )
+
+                if not content:
+                    content = _format_analysis_text(work)
+
+                normalized_chapters.append(
+                    {
+                        "titre": chapter_title,
+                        "contenu": content,
+                    }
+                )
+
+            global_candidates = [
+                payload.get("comparaison_stylistique_globale"),
+                payload.get("rapprochement_stylistique"),
+                payload.get("analyse_stylistique_globale"),
+            ]
+            for global_candidate in global_candidates:
+                global_text = _format_analysis_text(global_candidate)
+                if global_text:
+                    normalized_chapters.append(
+                        {
+                            "titre": "Analyse stylistique comparative",
+                            "contenu": global_text,
+                        }
+                    )
+                    break
+
+            return normalized_chapters or None
+
+    if isinstance(payload, list):
+        return [chapter for chapter in payload if isinstance(chapter, dict)] or None
 
     return None
+
+
+def _extract_chapters_payload(final_output: str) -> list[dict[str, object]] | None:
+    """
+    Relit le JSON et retourne la liste des chapitres si présente.
+    """
+    payload = _extract_json_payload(final_output)
+    return _coerce_payload_to_chapters(payload)
 
 
 def _match_artwork_analysis(
@@ -391,28 +524,47 @@ def _match_artwork_analysis(
     title_key = _normalize_lookup_text(title)
     artist_key = _normalize_lookup_text(artist)
     if chapters is not None:
+        best_score = 0.0
+        best_content: str | None = None
+
         for chapter in chapters:
             if not isinstance(chapter, dict):
                 continue
+            if _is_global_analysis_title(chapter.get("titre", "")):
+                continue
+
             chapter_artist, chapter_title = _split_analysis_title(chapter.get("titre", ""))
+            normalized_chapter_artist = _normalize_lookup_text(chapter_artist)
+            normalized_chapter_title = _normalize_lookup_text(chapter_title)
+
             if (
-                _match_normalized_text(artist_key, _normalize_lookup_text(chapter_artist))
-                and _match_normalized_text(title_key, _normalize_lookup_text(chapter_title))
+                _match_normalized_text(artist_key, normalized_chapter_artist)
+                and _match_normalized_text(title_key, normalized_chapter_title)
             ):
                 return _format_chapter_content(chapter.get("contenu", []))
 
-        if result_index is not None:
-            artwork_chapters = []
-            for chapter in chapters:
-                if not isinstance(chapter, dict):
-                    continue
-                chapter_title = _normalize_lookup_text(chapter.get("titre", ""))
-                if "proximite stylistique" in chapter_title:
-                    continue
-                artwork_chapters.append(chapter)
+            score = 0.0
+            if title_key:
+                score += max(
+                    _token_overlap_score(title_key, normalized_chapter_title),
+                    _token_overlap_score(title_key, _normalize_lookup_text(chapter.get("titre", ""))),
+                )
+            if artist_key:
+                artist_score = max(
+                    _token_overlap_score(artist_key, normalized_chapter_artist),
+                    _token_overlap_score(artist_key, _normalize_lookup_text(chapter.get("titre", ""))),
+                )
+                score += min(artist_score, 1.0)
 
-            if 0 <= result_index < len(artwork_chapters):
-                return _format_chapter_content(artwork_chapters[result_index].get("contenu", []))
+            if chapter_artist and chapter_title:
+                score += 0.1
+
+            if score > best_score:
+                best_score = score
+                best_content = _format_chapter_content(chapter.get("contenu", []))
+
+        if best_score >= 0.8:
+            return best_content
 
     return None
 
@@ -426,8 +578,7 @@ def _extract_global_analysis(final_output: str) -> str | None:
         for chapter in chapters:
             if not isinstance(chapter, dict):
                 continue
-            chapter_title = _normalize_lookup_text(chapter.get("titre", ""))
-            if "proximite stylistique" in chapter_title:
+            if _is_global_analysis_title(chapter.get("titre", "")):
                 return _format_chapter_content(chapter.get("contenu", []))
 
     return None
@@ -470,7 +621,7 @@ def _match_source_artwork_analysis(
         chapter_title = str(chapter.get("titre", "")).strip()
         normalized_chapter_title = _normalize_lookup_text(chapter_title)
 
-        if "proximite stylistique" in normalized_chapter_title:
+        if _is_global_analysis_title(chapter_title):
             continue
 
         chapter_artist, chapter_artwork = _split_analysis_title(chapter_title)
@@ -511,7 +662,11 @@ def _match_source_artwork_analysis(
     return None
 
 
-def _run_async_analysis_sync(candidates_df: pd.DataFrame, artwork_of_interest: str) -> dict[str, str]:
+def _run_async_analysis_sync(
+    candidates_df: pd.DataFrame,
+    artwork_of_interest: str,
+    profile_name: str,
+) -> dict[str, str]:
     """
     Exécute l'analyse async dans un contexte synchrone Streamlit.
     """
@@ -525,7 +680,7 @@ def _run_async_analysis_sync(candidates_df: pd.DataFrame, artwork_of_interest: s
             df=candidates_df,
             artwork_of_interest=artwork_of_interest,
             config_path=str(PROJECT_ROOT / "config" / "config_agent.yaml"),
-            profile_name="comparaison_musee",
+            profile_name=profile_name,
             output_folder=str(PROJECT_ROOT / "outputs"),
         )
 
@@ -546,12 +701,16 @@ def _run_async_analysis_sync(candidates_df: pd.DataFrame, artwork_of_interest: s
 
 
 @st.cache_data(show_spinner=False)
-def _get_cached_ai_analysis(candidates_json: str, artwork_of_interest: str) -> dict[str, str]:
+def _get_cached_ai_analysis(
+    candidates_json: str,
+    artwork_of_interest: str,
+    profile_name: str,
+) -> dict[str, str]:
     """
     Met en cache l'analyse OpenAI pour éviter les relances inutiles.
     """
     candidates_df = pd.DataFrame(json.loads(candidates_json))
-    return _run_async_analysis_sync(candidates_df, artwork_of_interest)
+    return _run_async_analysis_sync(candidates_df, artwork_of_interest, profile_name)
 
 
 @st.cache_data(show_spinner=False)
@@ -566,6 +725,41 @@ def _is_ai_agent_enabled() -> bool:
 
     ai_config = config.get("ai-agent", {})
     return bool(ai_config.get("ai_active", True))
+
+
+@st.cache_data(show_spinner=False)
+def _get_default_ai_profile_name() -> str:
+    """
+    Lit le nom du profil IA par défaut pour l'afficher dans l'interface.
+    """
+    try:
+        config = load_config("config/config_agent.yaml")
+    except Exception:
+        return AI_GUIDE_PROFILE_NAME
+
+    ai_config = config.get("ai-agent", {})
+    profile_name = str(ai_config.get("default_profile", "")).strip()
+    return profile_name or AI_GUIDE_PROFILE_NAME
+
+
+@st.cache_data(show_spinner=False)
+def _get_available_ai_profile_names() -> list[str]:
+    """
+    Retourne la liste des profils IA disponibles dans la configuration.
+    """
+    try:
+        config = load_config("config/config_agent.yaml")
+    except Exception:
+        return [AI_GUIDE_PROFILE_NAME]
+
+    ai_config = config.get("ai-agent", {})
+    profiles = ai_config.get("profiles", {})
+    if isinstance(profiles, dict):
+        names = [str(name).strip() for name in profiles.keys() if str(name).strip()]
+        if names:
+            return names
+
+    return [AI_GUIDE_PROFILE_NAME]
 
 
 def _load_internal_dataframe() -> pd.DataFrame:
@@ -1152,13 +1346,38 @@ st.markdown(
         }
 
         [data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
             gap: 0.85rem;
         }
 
         [data-testid="column"] {
             width: 100% !important;
             flex: 1 1 100% !important;
-            min-width: 100% !important;
+            min-width: 0 !important;
+        }
+
+        [data-testid="stImage"],
+        [data-testid="stImage"] > div,
+        [data-testid="stPlotlyChart"],
+        [data-testid="stDataFrame"] {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+        }
+
+        .js-plotly-plot,
+        .plot-container,
+        .svg-container {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+
+        [data-testid="stImage"] img {
+            width: 100% !important;
+            height: auto !important;
+            max-width: 100% !important;
         }
 
         [data-testid="stFileUploader"] button,
@@ -1177,6 +1396,15 @@ st.markdown(
 
         .stTabs [data-baseweb="tab"] {
             font-size: 0.92rem;
+        }
+
+        .museum-card {
+            padding: 0.85rem 0.9rem;
+        }
+
+        [data-testid="stMarkdownContainer"] p,
+        [data-testid="stCaptionContainer"] {
+            overflow-wrap: anywhere;
         }
     }
     </style>
@@ -1409,6 +1637,53 @@ def _select_explanation_layers(layer_names: list[str], layer_numbers: list[int])
             missing_layers.append(layer_number)
 
     return selected_layers, missing_layers
+
+
+def _build_random_gradcam_layer_numbers(
+    pair_count: int,
+    min_layer: int = 1,
+    max_layer: int = 245,
+) -> list[int]:
+    """
+    Génère des couches réparties sur l'intervalle complet avec une part d'aléatoire.
+    """
+    count = max(1, int(pair_count))
+    min_layer = max(1, int(min_layer))
+    max_layer = max(min_layer, int(max_layer))
+
+    if count == 1:
+        return [random.randint(min_layer, max_layer)]
+
+    total_span = max_layer - min_layer
+    segment_size = total_span / count
+    selected_numbers: list[int] = []
+
+    for index in range(count):
+        segment_start = min_layer + (segment_size * index)
+        segment_end = min_layer + (segment_size * (index + 1))
+
+        low = int(round(segment_start))
+        high = int(round(segment_end))
+
+        if index == 0:
+            low = min_layer
+        if index == count - 1:
+            high = max_layer
+
+        low = max(min_layer, low)
+        high = min(max_layer, max(low, high))
+
+        selected_numbers.append(random.randint(low, high))
+
+    unique_numbers = sorted(set(selected_numbers))
+
+    while len(unique_numbers) < count and len(unique_numbers) < (max_layer - min_layer + 1):
+        candidate = random.randint(min_layer, max_layer)
+        if candidate not in unique_numbers:
+            unique_numbers.append(candidate)
+            unique_numbers.sort()
+
+    return unique_numbers
 
 
 # =============================================================================
@@ -1792,6 +2067,8 @@ except Exception as exc:
 # =============================================================================
 
 runtime_status = render_runtime_status()
+available_ai_profiles = _get_available_ai_profile_names()
+default_ai_profile_name = _get_default_ai_profile_name()
 
 if retriever_error is not None:
     st.warning(f"Moteur de retrieval indisponible : {retriever_error}")
@@ -1824,10 +2101,46 @@ if uploaded is not None:
 if uploaded_signature != st.session_state.get("uploaded_signature"):
     st.session_state["uploaded_signature"] = uploaded_signature
     st.session_state["show_gradcam_history"] = False
+    st.session_state["show_ai_analyses"] = False
     if uploaded_signature is not None:
         st.session_state["source_mode"] = "uploaded"
 
-k = 4
+with st.expander("Configuration", expanded=False):
+    selected_result_count = st.slider(
+        "Nombre de tableaux comparés",
+        min_value=1,
+        max_value=4,
+        value=4,
+        key="result_count",
+        help="Définit combien d'oeuvres similaires afficher et comparer.",
+    )
+
+    selected_ai_profile = st.selectbox(
+        "Profil de l'agent IA",
+        options=available_ai_profiles,
+        index=(
+            available_ai_profiles.index(default_ai_profile_name)
+            if default_ai_profile_name in available_ai_profiles
+            else 0
+        ),
+        key="selected_ai_profile",
+        disabled=not _is_ai_agent_enabled(),
+        help="Choisit le style de commentaire utilisé pour les analyses IA.",
+    )
+
+    gradcam_pair_count = st.slider(
+        "Nombre de paires Grad-CAM",
+        min_value=1,
+        max_value=30,
+        value=10,
+        key="gradcam_pair_count",
+        help="Définit combien de paires de cartes Grad-CAM afficher.",
+    )
+
+    if not _is_ai_agent_enabled():
+        st.caption("L'agent IA est désactivé dans la configuration actuelle.")
+
+k = int(selected_result_count)
 # Nombre de résultats similaires à demander au moteur.
 # Ici, on fixe top-k à 4 de manière statique.
 # Une version plus avancée pourrait exposer ce paramètre à l'utilisateur via
@@ -1920,16 +2233,18 @@ if retriever is not None:
     st.subheader("Image source")
     # Affiche un sous-titre pour introduire la section de l'image requête.
 
+    source_image_width = _compute_source_image_display_width(query_path)
+
     st.image(
         query_path,
         caption="Image requête",
-        width="stretch",
+        width=source_image_width,
     )
     # Affiche l'image uploadée par l'utilisateur.
     # query_path est le chemin local temporaire de l'image.
     # caption ajoute une légende sous l'image.
-    # width=600 fixe une largeur d'affichage en pixels.
-    # La ligne width="stretch" est commentée : elle aurait étiré l'image selon l'espace dispo.
+    # La largeur est ajustée selon le ratio de l'image pour éviter les formats
+    # trop étirés sur l'interface.
 
     source_artist, source_title = _extract_artist_and_title(source_display_name or query_path)
     st.markdown(
@@ -2000,6 +2315,7 @@ if retriever is not None:
     )
 
     should_run_ai_analysis = ai_agent_enabled and show_ai_analyses
+    ai_profile_name = str(selected_ai_profile).strip() or default_ai_profile_name
 
     if should_run_ai_analysis and not candidates_df.empty:
         candidates_json = json.dumps(candidates_df.to_dict(orient="records"), ensure_ascii=False)
@@ -2012,7 +2328,11 @@ if retriever is not None:
             ai_progress_text.caption("Chargement des analyses IA : envoi de la requête")
             ai_progress_bar.progress(0.45)
 
-            ai_analysis_payload = _get_cached_ai_analysis(candidates_json, artwork_of_interest)
+            ai_analysis_payload = _get_cached_ai_analysis(
+                candidates_json,
+                artwork_of_interest,
+                ai_profile_name,
+            )
 
             ai_progress_text.caption("Chargement des analyses IA : extraction des chapitres")
             ai_progress_bar.progress(0.8)
@@ -2036,7 +2356,10 @@ if retriever is not None:
             source_display_name,
         )
         if source_analysis:
-            with st.expander("Analyse IA de l'image requête", expanded=False):
+            with st.expander(
+                f"Analyse IA ({ai_profile_name}) de l'image requête",
+                expanded=False,
+            ):
                 st.markdown(
                     f"""
                     <div style="
@@ -2117,7 +2440,10 @@ if retriever is not None:
             # avec cette œuvre comme nouvelle image source.
 
     if ai_agent_enabled and should_run_ai_analysis:
-        with st.expander("Analyses IA et comparaison stylistique globale", expanded=False):
+        with st.expander(
+            f"Analyses IA ({ai_profile_name}) et comparaison stylistique globale",
+            expanded=False,
+        ):
             if ai_analysis_payload is not None:
                 analysis_cols = st.columns(min(4, len(rows)))
                 for i, row in enumerate(rows):
@@ -2617,7 +2943,11 @@ if retriever is not None:
         # que la simple recherche des voisins les plus proches.
 
         try:
-            history_layer_numbers = [10, 20, 50, 70, 100, 120, 150, 200, 240, 245]
+            history_layer_numbers = _build_random_gradcam_layer_numbers(
+                gradcam_pair_count,
+                min_layer=1,
+                max_layer=245,
+            )
 
             history_layers, missing_history_layers = _select_explanation_layers(
                 available_layers,
@@ -2677,7 +3007,7 @@ if retriever is not None:
                 st.markdown("**Grad-CAM history**")
                 st.caption(
                     f"{len(history_explanations)} paires de cartes affichees pour les couches "
-                    "10, 20, 50, 70, 100, 120, 150, 200, 240, 245."
+                    f"{', '.join(str(layer_number) for layer_number in history_layer_numbers)}."
                 )
 
                 if missing_history_layers:

@@ -267,7 +267,7 @@ async def main():
         df=df,
         artwork_of_interest=artwork_of_interest,
         config_path="config_agent.yaml",
-        profile_name="comparaison_musee",
+        profile_name="guide_musée",
         output_folder="outputs",
     )
 

@@ -1,0 +1,35 @@
+```json
+{
+  "chapitres": [
+    {
+      "titre": "Contexte et spécificités stylistiques des œuvres",
+      "contenu": [
+        {
+          "titre": "John Crome – Postwick Grove, Norwich (1817)",
+          "description": "John Crome, peintre britannique du XVIIIᵉ siècle, est le fondateur de l'école de Norwich. Dans 'Postwick Grove, Norwich' (1817), il capture la beauté naturelle de la campagne anglaise avec une attention particulière aux détails et à la lumière, caractéristiques du romantisme. Son utilisation de couleurs terreuses et de compositions équilibrées reflète son engagement envers la représentation fidèle de la nature."
+        },
+        {
+          "titre": "Charles-François Daubigny – Washerwomen at the Oise River near Valmondois (vers 1865)",
+          "description": "Charles-François Daubigny, peintre français du XIXᵉ siècle, est associé au mouvement réaliste. Dans 'Washerwomen at the Oise River near Valmondois', il dépeint une scène tranquille de lavandières au bord de la rivière Oise, capturant la lumière et l'atmosphère de la campagne française avec des coups de pinceau visibles et une palette de couleurs naturelles. ([nga.gov](https://www.nga.gov/artworks/35087-washerwomen-oise-river-near-valmondois?utm_source=openai))"
+        },
+        {
+          "titre": "Efim Volkov – In Late Winter",
+          "description": "Efim Volkov, peintre russe du XIXᵉ siècle, est connu pour ses paysages hivernaux. Dans 'In Late Winter', il représente des scènes enneigées avec une lumière douce et une atmosphère mélancolique, utilisant des tons froids et des détails précis pour évoquer la sérénité de l'hiver russe."
+        },
+        {
+          "titre": "Camille Corot – Souvenir of Brittany (1873)",
+          "description": "Camille Corot, peintre français du XIXᵉ siècle, est reconnu pour ses paysages et ses scènes de genre. Dans 'Souvenir of Brittany', il capture la lumière et l'atmosphère de la Bretagne avec des coups de pinceau fluides et une palette de couleurs subtiles, reflétant son style unique influencé par le réalisme et le pré-impressionnisme."
+        },
+        {
+          "titre": "Camille Corot – Outskirts of a Village near Beauvais",
+          "description": "Dans 'Outskirts of a Village near Beauvais', Corot dépeint une scène bucolique avec des arbres, des champs et des bâtiments en arrière-plan. Il utilise des tons doux et une lumière diffuse pour créer une atmosphère paisible, caractéristique de son approche artistique."
+        }
+      ]
+    },
+    {
+      "titre": "Analyse de la proximité stylistique entre les artistes",
+      "contenu": "Bien que ces artistes proviennent de contextes culturels différents, ils partagent une approche réaliste de la représentation de la nature. Leurs œuvres reflètent une attention particulière à la lumière, aux détails et à l'atmosphère, caractéristiques du réalisme et du pré-impressionnisme. Leurs compositions équilibrées et l'utilisation de palettes de couleurs naturelles témoignent d'une volonté commune de capturer la beauté et la sérénité du monde naturel."
+    }
+  ]
+}
+``` 
