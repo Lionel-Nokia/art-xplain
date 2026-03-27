@@ -13,3 +13,4 @@ art-xplain/data/
 art-xplain/embeddings/
 art-xplain/models/
 *.keras
+art-xplain/outputs/
