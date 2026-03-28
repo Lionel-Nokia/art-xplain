@@ -865,7 +865,12 @@ class ArtXplainApp:
         if enabled and not candidates_df.empty:
             candidates_json = json.dumps(candidates_df.to_dict(orient="records"), ensure_ascii=False)
             try:
-                payload = get_cached_ai_analysis(candidates_json, artwork_of_interest, config.ai_profile_name)
+                with st.spinner("Analyse IA en cours..."):
+                    payload = get_cached_ai_analysis(
+                        candidates_json,
+                        artwork_of_interest,
+                        config.ai_profile_name,
+                    )
                 extract_chapters_payload(payload["final_output"])
                 # Cet appel sert aussi de validation implicite : si la structure
                 # dérive trop côté agent, on le détecte avant plusieurs rendus UI.
