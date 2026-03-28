@@ -206,6 +206,7 @@ async def run_analysis(
     config_path: str = "config_agent.yaml",
     profile_name: Optional[str] = None,
     output_folder: str = "outputs",
+    save_to_file: bool = True,
 ) -> Dict[str, Any]:
     """
     Exécute l'analyse :
@@ -238,12 +239,14 @@ async def run_analysis(
     with trace("Search"):
         result = await Runner.run(agent, message)
 
-    output_path = save_output(
-        content=result.final_output,
-        prefix=artwork_of_interest,
-        folder=output_folder,
-        pretty_json=True,
-    )
+    output_path = ""
+    if save_to_file:
+        output_path = save_output(
+            content=result.final_output,
+            prefix=artwork_of_interest,
+            folder=output_folder,
+            pretty_json=True,
+        )
 
     return {
         "result": result,
