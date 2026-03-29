@@ -124,6 +124,17 @@ def setup_page(logo_path: Path) -> None:
             min-width: 15rem !important;
             padding-left: 1.25rem !important;
             padding-right: 1.25rem !important;
+            border-color: rgba(17, 17, 17, 0.14) !important;
+            box-shadow: none !important;
+            outline: none !important;
+        }
+        [data-testid="stFileUploaderDropzone"] button:hover,
+        [data-testid="stFileUploaderDropzone"] button:focus,
+        [data-testid="stFileUploaderDropzone"] button:focus-visible,
+        [data-testid="stFileUploaderDropzone"] button:active {
+            border-color: rgba(17, 17, 17, 0.14) !important;
+            box-shadow: none !important;
+            outline: none !important;
         }
         [data-testid="stFileUploaderDropzone"] button::after {
             content: "Upload";

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import re
 from pathlib import Path
 
 import numpy as np
@@ -52,9 +53,9 @@ def find_best_index(filenames: np.ndarray, best_filepath: str) -> int | None:
 
 
 def prettify_token(text: str) -> str:
-    token = str(text).strip().replace("_", " ")
+    token = re.sub(r"[_-]+", " ", str(text).strip())
     token = " ".join(token.split())
-    return token if token else "Inconnu"
+    return token.title() if token else "Inconnu"
 
 
 def extract_artist_and_title(filepath: str) -> tuple[str, str]:
