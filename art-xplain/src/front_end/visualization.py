@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import re
 from pathlib import Path
 
 import numpy as np
@@ -10,12 +11,19 @@ from src.retrieval import StyleRetriever
 from src.utils import load_config, resolve_project_path, resolve_stored_path
 
 
-@st.cache_resource
+RETRIEVER_SESSION_KEY = "_style_retriever"
+
+
 def get_retriever() -> StyleRetriever:
-    # Le retriever recharge un modèle Keras et plusieurs artefacts NumPy.
-    # Le cacher comme ressource évite un coût de réinitialisation important
-    # à chaque rerun Streamlit.
-    return StyleRetriever()
+    # On conserve le retriever au niveau de la session Streamlit plutôt qu'en
+    # ressource globale partagée. En pratique, partager la même instance Keras
+    # entre plusieurs sessions/threads a déjà provoqué des corruptions d'état
+    # internes (`name_scope_stack.pop()` dans Keras 3).
+    retriever = st.session_state.get(RETRIEVER_SESSION_KEY)
+    if retriever is None:
+        retriever = StyleRetriever()
+        st.session_state[RETRIEVER_SESSION_KEY] = retriever
+    return retriever
 
 
 def coerce_object_array(values) -> np.ndarray:
@@ -52,9 +60,9 @@ def find_best_index(filenames: np.ndarray, best_filepath: str) -> int | None:
 
 
 def prettify_token(text: str) -> str:
-    token = str(text).strip().replace("_", " ")
+    token = re.sub(r"[_-]+", " ", str(text).strip())
     token = " ".join(token.split())
-    return token if token else "Inconnu"
+    return token.title() if token else "Inconnu"
 
 
 def extract_artist_and_title(filepath: str) -> tuple[str, str]:

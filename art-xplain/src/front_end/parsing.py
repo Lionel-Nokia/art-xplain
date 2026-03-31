@@ -345,29 +345,30 @@ def match_source_artwork_analysis(
         normalized_chapter_artist = normalize_lookup_text(chapter_artist)
         normalized_chapter_artwork = normalize_lookup_text(chapter_artwork)
 
-        if any(
-            match_normalized_text(candidate_key, normalized_chapter_title)
-            or match_normalized_text(candidate_key, normalized_chapter_artwork)
-            for candidate_key in candidate_keys
-        ):
-            return format_chapter_content(chapter.get("contenu", []))
-
-        score = 0.0
+        title_score = 0.0
         for candidate_key in candidate_keys:
-            score = max(
-                score,
+            title_score = max(
+                title_score,
                 token_overlap_score(candidate_key, normalized_chapter_title),
                 token_overlap_score(candidate_key, normalized_chapter_artwork),
             )
 
+        artist_score = 0.0
         if source_artist_key and normalized_chapter_artist:
             if match_normalized_text(source_artist_key, normalized_chapter_artist):
-                score += 0.2
+                artist_score = 1.0
             else:
-                score += min(token_overlap_score(source_artist_key, normalized_chapter_artist), 0.2)
+                artist_score = token_overlap_score(source_artist_key, normalized_chapter_artist)
+
+        # Pour l'oeuvre source, on rend le fallback volontairement conservateur.
+        # Si l'agent n'a pas produit de chapitre clair pour la source, on préfère
+        # ne rien afficher plutôt que réutiliser l'analyse du premier candidat.
+        score = title_score + (0.35 * artist_score)
 
         if score > best_score:
             best_score = score
             best_content = format_chapter_content(chapter.get("contenu", []))
 
-    return best_content if best_score >= 0.55 else None
+    has_source_artist = bool(source_artist_key and source_artist_key != normalize_lookup_text("Inconnu"))
+    required_score = 1.05 if has_source_artist else 0.92
+    return best_content if best_score >= required_score else None

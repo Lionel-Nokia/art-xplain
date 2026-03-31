@@ -64,6 +64,8 @@ def setup_page(logo_path: Path) -> None:
             --museum-line: rgba(17, 17, 17, 0.14);
             --museum-accent: #b1221c;
             --museum-accent-soft: rgba(177, 34, 28, 0.08);
+            --museum-button-bg: rgba(255, 255, 255, 0.96);
+            --museum-button-bg-hover: #f6f3ee;
             --museum-shadow: 0 14px 34px rgba(17, 17, 17, 0.06);
             --museum-font: "Georgia", "Iowan Old Style", "Times New Roman", serif;
         }
@@ -90,10 +92,175 @@ def setup_page(logo_path: Path) -> None:
         .museum-card em { color:var(--museum-muted); font-size:0.96rem; }
         .museum-style-chip { display:inline-block; margin:0.15rem 0 1rem 0; padding:0.48rem 0.88rem; border-radius:4px; border:1px solid rgba(177,34,28,0.22); background:var(--museum-accent-soft); color:var(--museum-accent); font-size:0.82rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; }
         [data-testid="stFileUploaderDropzone"], [data-testid="stExpander"], [data-testid="stDataFrame"], [data-testid="stAlert"] { border:1px solid var(--museum-line)!important; border-radius:8px!important; background:var(--museum-panel)!important; box-shadow:var(--museum-shadow); }
+        [data-testid="stFileUploaderDropzone"],
+        [data-testid="stFileUploaderDropzone"] *,
+        [data-testid="stFileUploaderDropzone"] button,
+        [data-testid="stFileUploaderDropzone"] small {
+            font-family: Arial, Helvetica, sans-serif !important;
+            color: var(--museum-ink) !important;
+            -webkit-text-fill-color: currentColor !important;
+        }
+        [data-testid="stFileUploaderDropzone"] [data-testid="stMarkdownContainer"] p,
+        [data-testid="stFileUploaderDropzone"] p {
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 1.1rem !important;
+            font-weight: 500 !important;
+            line-height: 1.35 !important;
+            letter-spacing: 0 !important;
+            margin: 0 !important;
+        }
+        [data-testid="stFileUploaderDropzone"] small {
+            font-size: 0.95rem !important;
+            font-weight: 400 !important;
+            color: var(--museum-muted) !important;
+        }
+        [data-testid="stFileUploaderDropzone"] button {
+            color: transparent !important;
+            -webkit-text-fill-color: transparent !important;
+            font-size: 1rem !important;
+            font-weight: 500 !important;
+            letter-spacing: 0 !important;
+            position: relative !important;
+            min-width: 15rem !important;
+            padding-left: 1.25rem !important;
+            padding-right: 1.25rem !important;
+            border-color: rgba(17, 17, 17, 0.14) !important;
+            box-shadow: none !important;
+            outline: none !important;
+        }
+        [data-testid="stFileUploaderDropzone"] button:hover,
+        [data-testid="stFileUploaderDropzone"] button:focus,
+        [data-testid="stFileUploaderDropzone"] button:focus-visible,
+        [data-testid="stFileUploaderDropzone"] button:active {
+            border-color: rgba(17, 17, 17, 0.14) !important;
+            box-shadow: none !important;
+            outline: none !important;
+        }
+        [data-testid="stFileUploaderDropzone"] button::after {
+            content: "Upload";
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--museum-ink);
+            -webkit-text-fill-color: var(--museum-ink);
+            white-space: nowrap;
+            pointer-events: none;
+        }
         [data-testid="stImage"] img { border-radius:4px; border:1px solid var(--museum-line); box-shadow:0 16px 32px rgba(16,16,16,0.10); }
         [data-testid="stImage"] img, [data-testid="stImage"] picture, [data-testid="stImage"] > div { max-width:100%; }
         [data-testid="stPlotlyChart"], [data-testid="stDataFrame"] { overflow-x:auto; }
         .stMarkdown a { color: var(--museum-accent); }
+        button,
+        [role="button"],
+        .stButton > button,
+        .stDownloadButton > button,
+        .stForm [data-testid="stFormSubmitButton"] > button {
+            -webkit-appearance: none !important;
+            appearance: none !important;
+            background: var(--museum-button-bg) !important;
+            background-color: var(--museum-button-bg) !important;
+            background-image: none !important;
+            color: var(--museum-ink) !important;
+            -webkit-text-fill-color: var(--museum-ink) !important;
+            border: 1px solid var(--museum-line) !important;
+            border-radius: 999px !important;
+            box-shadow: none !important;
+            color-scheme: light !important;
+            opacity: 1 !important;
+        }
+        button:hover,
+        [role="button"]:hover,
+        .stButton > button:hover,
+        .stDownloadButton > button:hover,
+        .stForm [data-testid="stFormSubmitButton"] > button:hover {
+            background: var(--museum-button-bg-hover) !important;
+            background-color: var(--museum-button-bg-hover) !important;
+            border-color: rgba(17, 17, 17, 0.24) !important;
+        }
+        button:focus,
+        [role="button"]:focus,
+        .stButton > button:focus,
+        .stDownloadButton > button:focus,
+        .stForm [data-testid="stFormSubmitButton"] > button:focus {
+            outline: none !important;
+            box-shadow: 0 0 0 3px rgba(177, 34, 28, 0.14) !important;
+        }
+        [data-testid="stCheckbox"] {
+            background: transparent !important;
+            color-scheme: light !important;
+        }
+        [data-testid="stCheckbox"] label,
+        [data-testid="stCheckbox"] div {
+            background: transparent !important;
+            color: var(--museum-ink) !important;
+            -webkit-text-fill-color: var(--museum-ink) !important;
+        }
+        [data-testid="stCheckbox"] label > div:first-child,
+        [data-testid="stCheckbox"] label > div:first-child > div,
+        [data-testid="stCheckbox"] [role="checkbox"],
+        [data-testid="stCheckbox"] [data-checked] {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            background-image: none !important;
+            border-color: rgba(17, 17, 17, 0.28) !important;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55) !important;
+            color-scheme: light !important;
+        }
+        [data-testid="stCheckbox"] input[type="checkbox"] {
+            -webkit-appearance: none !important;
+            appearance: none !important;
+            width: 1.05rem !important;
+            height: 1.05rem !important;
+            margin: 0 !important;
+            border: 1px solid rgba(17, 17, 17, 0.28) !important;
+            border-radius: 0.28rem !important;
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            background-image: none !important;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55) !important;
+            color-scheme: light !important;
+            position: relative !important;
+            vertical-align: middle !important;
+        }
+        [data-testid="stCheckbox"] input[type="checkbox"] + div,
+        [data-testid="stCheckbox"] input[type="checkbox"] ~ div {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            background-image: none !important;
+            border-color: rgba(17, 17, 17, 0.28) !important;
+        }
+        [data-testid="stCheckbox"] input[type="checkbox"]:checked {
+            background: var(--museum-accent) !important;
+            background-color: var(--museum-accent) !important;
+            border-color: var(--museum-accent) !important;
+        }
+        [data-testid="stCheckbox"] label[data-checked="true"] > div:first-child,
+        [data-testid="stCheckbox"] label[data-checked="true"] > div:first-child > div,
+        [data-testid="stCheckbox"] [role="checkbox"][aria-checked="true"] {
+            background: var(--museum-accent) !important;
+            background-color: var(--museum-accent) !important;
+            border-color: var(--museum-accent) !important;
+        }
+        [data-testid="stCheckbox"] input[type="checkbox"]:checked::after {
+            content: "" !important;
+            position: absolute !important;
+            left: 0.33rem !important;
+            top: 0.08rem !important;
+            width: 0.24rem !important;
+            height: 0.5rem !important;
+            border: solid #ffffff !important;
+            border-width: 0 0.12rem 0.12rem 0 !important;
+            transform: rotate(45deg) !important;
+        }
+        [data-testid="stCheckbox"] input[type="checkbox"]:focus {
+            outline: none !important;
+            box-shadow: 0 0 0 3px rgba(177, 34, 28, 0.14) !important;
+        }
         @media (max-width: 900px) {
             [data-testid="block-container"] { padding-top:1.25rem; padding-bottom:2.5rem; padding-left:1rem; padding-right:1rem; }
             .museum-hero { padding:1.35rem 1rem 1.15rem 1rem; border-radius:8px; background-position:62% center; }
@@ -108,6 +275,33 @@ def setup_page(logo_path: Path) -> None:
             [data-testid="stImage"] img { width:100%!important; height:auto!important; max-width:100%!important; }
             .museum-card { padding:0.85rem 0.9rem; }
             [data-testid="stMarkdownContainer"] p, [data-testid="stCaptionContainer"] { overflow-wrap:anywhere; }
+            [data-testid="stFileUploaderDropzone"] {
+                padding: 0.9rem !important;
+            }
+            [data-testid="stFileUploaderDropzone"] section {
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: 0.75rem !important;
+            }
+            [data-testid="stFileUploaderDropzone"] button {
+                width: 100% !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+                margin-left: 0 !important;
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+            }
+            [data-testid="stFileUploaderDropzone"] button::after {
+                font-size: 0.95rem !important;
+            }
+            [data-testid="stFileUploaderDropzone"] [data-testid="stMarkdownContainer"] p,
+            [data-testid="stFileUploaderDropzone"] p {
+                font-size: 1rem !important;
+                line-height: 1.3 !important;
+            }
+            [data-testid="stFileUploaderDropzone"] small {
+                font-size: 0.9rem !important;
+            }
         }
         </style>
         """,
