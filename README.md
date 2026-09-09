@@ -1,37 +1,39 @@
 <h1 align="center">Art-Xplain</h2>
-<h3 align="center">Moteur de similarité stylistique pour oeuvres peintes</h2>
+<h3 align="center">Stylistic similarity engine for painted artworks</h2>
 
 
 ---
 _version 0.03.25.1710_
-- **Emmanuelle**
-- **Lucile**
-- **Lionel**
+- **Lionel Natarianni**
+- _Le Wagon teammates_
+  - **Emmanuelle**
+  - **Lucile**
 
-Art-Xplain est un projet Python/TensorFlow qui apprend un encodeur visuel pour comparer des œuvres d'art par similarité de style.
 
-Le pipeline couvre:
-- préparation d'un dataset Keras-ready (train/val/test)
-- entraînement d'un model encodeur
-- recherche top-k par similarité cosinus
-- explication visuelle de similarité avec Grad-CAM
-- démo interactive Streamlit
+Art-Xplain is a Python/TensorFlow project that trains a visual encoder to compare artworks by style similarity.
+
+The pipeline covers:
+- preparing a Keras-ready dataset (train/val/test)
+- training an encoder model
+- top-k search by cosine similarity
+- visual explanation of similarity with Grad-CAM
+- interactive Streamlit demo
 ## Architecture
 
 ![Architecture](images/archi-generale.png)
 
 
-## 1) Structure des données
+## 1) Data structure
 
-Entrée (dataset Kaggle source):
+Input (source Kaggle dataset):
 - `data/in/kaggle-wikiart`
 
-Sortie (dataset généré pour entraînement):
+Output (dataset generated for training):
 - `data/out/train/<style>/*.jpg`
 - `data/out/val/<style>/*.jpg`
 - `data/out/test/<style>/*.jpg`
 
-Ces chemins sont configurés dans `config.yaml` via:
+These paths are configured in `config.yaml` via:
 - `paths.kaggle_root: data/in/kaggle-wikiart`
 - `paths.keras_root: data/out`
 
@@ -41,108 +43,108 @@ Ces chemins sont configurés dans `config.yaml` via:
 make build_env
 ```
 
-## 3) Pipeline complet
+## 3) Full pipeline
 
-### Étape 1 — Construire les splits train/val/test
+### Step 1 — Build the train/val/test splits
 
-- #### Option notebook:
+- #### Notebook option:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/step_1_build_dataset_step_by_step.ipynb
 ```
 
-- #### Option make:
+- #### Make option:
 
 ```bash
 make dataset
 ```
 
-### Étape 2 — Entraîner l'encodeur
+### Step 2 — Train the encoder
 
-- #### Option notebook:
+- #### Notebook option:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/step_2_train_encoder_step_by_step.ipynb
 ```
 
-- #### Option make:
+- #### Make option:
 
 ```bash
 make train
 ```
 
-### Étape 3 — Calculer les embeddings
+### Step 3 — Compute the embeddings
 
-- #### Option notebook:
+- #### Notebook option:
 
 ```bash
 # Open this notebook:
 art-xplain/art-xplain/notebooks/step_3_compute_embeddings_step_by_step.ipynb
 ```
 
-- #### Option make:
+- #### Make option:
 
 ```bash
 make embeddings
 ```
 
-Fichiers générés dans `embeddings/`:
+Files generated in `embeddings/`:
 - `vectors.npy`
 - `labels.npy`
 - `filenames.npy`
 - `classnames.npy`
 
-### Étape 4 — Projeter en 2D (UMAP)
+### Step 4 — Project to 2D (UMAP)
 
-- #### Option make:
+- #### Make option:
 
 ```bash
 make umap
 ```
 
-Fichier généré:
+Generated file:
 - `latent_2d.npy`
 
-### Étape 5 — Lancer l'application Streamlit
+### Step 5 — Launch the Streamlit application
 
 ```bash
 make run
 ```
 
-L'application peut afficher une analyse IA complémentaire pour chaque tableau similaire :
-- les œuvres retournées par le moteur servent d'entrée à `art-xplain/src/ia_agent.py` ;
-- un cartouche d'analyse apparaît sous chaque tableau quand la case `Afficher les analyses IA sous les tableaux` est cochée ;
-- la comparaison stylistique globale reste affichée même si cette case est décochée.
-- le paramètre `ai-agent.ai_active` dans `art-xplain/config/config_agent.yaml` permet de désactiver complètement l'appel à l'agent IA et tous les affichages associés.
+The application can display a complementary AI analysis for each similar painting:
+- the artworks returned by the engine are used as input for `art-xplain/src/ia_agent.py`;
+- an analysis panel appears under each painting when the `Show AI analyses under paintings` checkbox is checked;
+- the overall stylistic comparison remains displayed even if this checkbox is unchecked.
+- the `ai-agent.ai_active` parameter in `art-xplain/config/config_agent.yaml` allows completely disabling the call to the AI agent and all associated displays.
 
-### Persistance du tableau récapitulatif
+### Persistence of the summary table
 
-L'application Streamlit conserve maintenant un DataFrame interne alimenté à partir du `Tableau récapitulatif` de chaque requête.
+The Streamlit application now maintains an internal DataFrame populated from the `Summary Table` of each query.
 
-Colonnes stockées :
-- `artiste`
-- `tableau`
+Stored columns:
+- `artist`
+- `painting`
 - `style`
-- `fichier`
-- `analyse`
-- `similarite`
+- `file`
+- `analysis`
+- `similarity`
 
-Fonctionnement :
-- à chaque requête, le tableau récapitulatif des résultats est converti en lignes candidates ;
-- si l'artiste ou le tableau de l'image source vaut `Inconnu`, rien n'est stocké pour cette requête ;
-- les résultats dont `artiste` ou `tableau` vaut `Inconnu` ne sont pas ajoutés au DataFrame interne ;
-- une œuvre n'est ajoutée que si le couple `artiste` + `tableau` n'existe pas déjà dans le DataFrame interne ;
-- la colonne `analyse` est créée mais reste vide pour l'instant ;
-- la colonne `similarite` contient un JSON listant l'historique des comparaisons pour chaque tableau ;
-- chaque entrée JSON stocke `artiste_source`, `tableau_source` et `similarite` pour la requête courante ;
-- une entrée de similarité n'est ajoutée que si cette même image source n'est pas déjà présente dans l'historique du tableau ;
-- au démarrage de l'application, le DataFrame est relu depuis `data/internal_artworks.csv` ;
-- à l'arrêt du programme, une sauvegarde est effectuée sur ce même fichier ;
-- une sauvegarde est aussi faite à chaque mise à jour du DataFrame, afin d'éviter toute perte en cours de session.
+How it works:
+- for each query, the summary table of results is converted into candidate rows;
+- if the artist or painting of the source image is `Unknown`, nothing is stored for that query;
+- results whose `artist` or `painting` is `Unknown` are not added to the internal DataFrame;
+- an artwork is only added if the `artist` + `painting` pair does not already exist in the internal DataFrame;
+- the `analysis` column is created but remains empty for now;
+- the `similarity` column contains a JSON listing the history of comparisons for each painting;
+- each JSON entry stores `source_artist`, `source_painting`, and `similarity` for the current query;
+- a similarity entry is only added if that same source image is not already present in the painting's history;
+- on application startup, the DataFrame is reloaded from `data/internal_artworks.csv`;
+- on program shutdown, a save is performed to this same file;
+- a save is also performed on every DataFrame update, to prevent any loss during the session.
 
-### Pipeline complet en une commande
+### Full pipeline in one command
 
 ```bash
 # dataset train embeddings umap
@@ -150,82 +152,82 @@ Fonctionnement :
 make all
 ```
 
-## 5) Notebook de préparation
+## 5) Preparation notebook
 
-Définition (materialization): dans ce projet, la materialization correspond à la copie physique des images vers l’arborescence cible `data/out/train|val|test/<style>/...` à partir des splits calculés.
+Definition (materialization): in this project, materialization refers to the physical copying of images to the target tree structure `data/out/train|val|test/<style>/...` from the computed splits.
 
-Le notebook étape 1 permet de travailler, tester, comprendre et valider la préparation du dataset labelisé pour entrainer du model:
+The step 1 notebook lets you work with, test, understand, and validate the preparation of the labeled dataset for training the model:
 - `notebooks/step_1_build_dataset_step_by_step.ipynb`
 
-Le notebook `step_1_build_dataset_step_by_step.ipynb` exécute les opérations lecture CSV, préparation labels, filtrage, split, nettoyage, matérialisation.
+The `step_1_build_dataset_step_by_step.ipynb` notebook performs the following operations: CSV reading, label preparation, filtering, splitting, cleanup, materialization.
 
-Les fonctions `detect_images_root_from_filenames`, `infer_label_from_filename_parent`, `normalize_label_value`, `clean_output_root` et `materialize_split` sont elles codées dans `src/build_dataset_from_csv.py`. Le notebook permet d’exécuter ces opérations de base pas à pas.
+The `detect_images_root_from_filenames`, `infer_label_from_filename_parent`, `normalize_label_value`, `clean_output_root`, and `materialize_split` functions are coded in `src/build_dataset_from_csv.py`. The notebook lets you run these base operations step by step.
 
-### Résumé des cellules du notebook
+### Notebook cell summary
 
-- Cellules 1-2: imports, détection de la racine projet, chargement de la config.
-- Cellule 3: lecture du CSV et inspection des colonnes.
-- Cellule 4: préparation de `filename` + `label` (inférence/normalisation).
-- Cellule 5: détection du dossier images + filtrage des styles.
-- Cellule 6: split stratifié `train/val/test`.
-- Cellule 7: nettoyage optionnel de `data/out` (`clean_output_root`).
-- Cellule 8: matérialisation optionnelle des splits (`materialize_split`).
-- Cellule 9: vérification rapide du résultat (comptage styles/fichiers).
+- Cells 1-2: imports, project root detection, config loading.
+- Cell 3: CSV reading and column inspection.
+- Cell 4: preparation of `filename` + `label` (inference/normalization).
+- Cell 5: image folder detection + style filtering.
+- Cell 6: stratified `train/val/test` split.
+- Cell 7: optional cleanup of `data/out` (`clean_output_root`).
+- Cell 8: optional materialization of the splits (`materialize_split`).
+- Cell 9: quick check of the result (style/file counts).
 
-### Résumé des fonctions clés du notebook
+### Summary of the notebook's key functions
 
 - `detect_images_root_from_filenames`:
-  teste plusieurs racines candidates et sélectionne celle qui résout le plus de chemins `filename` du CSV (ex: `kaggle_root`, `kaggle_root/images`, sous-dossiers).
+  tests several candidate roots and selects the one that resolves the most `filename` paths from the CSV (e.g. `kaggle_root`, `kaggle_root/images`, subfolders).
 
 - `infer_label_from_filename_parent`:
-  essaie d'inférer le label depuis le dossier parent du `filename` (ex: `Impressionism/img.jpg` -> `Impressionism`), utile quand la colonne `style` n'est pas fiable ou absente.
+  attempts to infer the label from the parent folder of `filename` (e.g. `Impressionism/img.jpg` -> `Impressionism`), useful when the `style` column is unreliable or missing.
 
 - `normalize_label_value`:
-  nettoie/normalise les labels (gestion des labels stockés comme listes texte, suppression d'ambiguïtés, remplacement de `/` par `_` pour créer des dossiers sûrs).
+  cleans/normalizes labels (handling labels stored as text lists, removing ambiguities, replacing `/` with `_` to create safe folder names).
 
 - `clean_output_root`:
-  supprime le contenu de `paths.keras_root` (`data/out`) pour repartir d'un état propre avant une nouvelle génération.
+  removes the contents of `paths.keras_root` (`data/out`) to start fresh before a new generation.
 
 - `materialize_split`:
-  copie les images dans la structure finale `train/val/test/<style>/...` en résolvant les chemins sources et en comptant les fichiers copiés/manquants.
+  copies the images into the final `train/val/test/<style>/...` structure, resolving source paths and counting copied/missing files.
 
-- `dataset.keep_styles` dans `config/config.yaml`:
-  permet d'imposer une liste manuelle de styles à conserver. Si cette liste est renseignée, elle prend la priorité sur `dataset.keep_top_styles`.
+- `dataset.keep_styles` in `config/config.yaml`:
+  allows imposing a manual list of styles to keep. If this list is provided, it takes priority over `dataset.keep_top_styles`.
 
 ## 6) Build model notebook
 
 Notebook:
 - `notebooks/step_2_train_encoder_step_by_step.ipynb`
 
-Résumé des cellules (étapes):
-- Cellule 1-2: imports, détection de la racine projet.
-- Cellule 3: chargement de la config et des chemins utiles.
-- Cellule 4: vérification des dossiers `train` et `val`.
-- La config `model.backbone` peut maintenant cibler `EfficientNetV2-S` ou `EfficientNetV2-M` selon le compromis vitesse/capacité souhaité.
-- Cellule 5: lecture des hyperparamètres du modèle et d'entraînement.
-- Cellule 6: création des datasets TensorFlow.
-- Cellule 7: construction de l'encodeur (backbone + embedding).
-- Cellule 8: construction du classifieur (tête softmax).
-- Cellule 9: callbacks + entraînement de la tête (phase 1).
-- Cellule 10: fine-tuning optionnel (phase 2).
-- Cellule 11: sauvegarde de l'encodeur.
+Cell summary (steps):
+- Cells 1-2: imports, project root detection.
+- Cell 3: loading the config and relevant paths.
+- Cell 4: checking the `train` and `val` folders.
+- The `model.backbone` config can now target `EfficientNetV2-S` or `EfficientNetV2-M` depending on the desired speed/capacity trade-off.
+- Cell 5: reading the model and training hyperparameters.
+- Cell 6: creating the TensorFlow datasets.
+- Cell 7: building the encoder (backbone + embedding).
+- Cell 8: building the classifier (softmax head).
+- Cell 9: callbacks + head training (phase 1).
+- Cell 10: optional fine-tuning (phase 2).
+- Cell 11: saving the encoder.
 
 ## 7) Compute embeddings notebook
 
 Notebook:
 - `notebooks/step_3_compute_embeddings_step_by_step.ipynb`
 
-Résumé des cellules (étapes):
-- Cellule 1-2: imports, détection de la racine projet.
-- Cellule 3: chargement de la config et des chemins utiles.
-- Cellule 4: collecte des chemins d'images et labels.
-- Cellule 5: création du dataset TensorFlow.
-- Cellule 6: chargement de l'encodeur entraîné.
-- Cellule 7: calcul des embeddings (batches).
-- Cellule 8: sauvegarde des fichiers `.npy`.
+Cell summary (steps):
+- Cells 1-2: imports, project root detection.
+- Cell 3: loading the config and relevant paths.
+- Cell 4: collecting image paths and labels.
+- Cell 5: creating the TensorFlow dataset.
+- Cell 6: loading the trained encoder.
+- Cell 7: computing the embeddings (batches).
+- Cell 8: saving the `.npy` files.
 
 
-## 7) Dépendances principales
+## 7) Main dependencies
 
 - TensorFlow
 - NumPy
@@ -235,43 +237,43 @@ Résumé des cellules (étapes):
 - OpenCV
 - Streamlit
 
-## 8) Model: (description du modèle choisi)
+## 8) Model: (description of the chosen model)
 
 
 
 ![Architecture model](images/archi-artxplain.png)
 
 ### Description
-**Étapes du modèle (encodeur + entraînement)**
+**Model steps (encoder + training)**
 
-- Entrée image:
-    Une image est chargée et redimensionnée en img_size × img_size × 3.
+- Image input:
+    An image is loaded and resized to img_size × img_size × 3.
 
-- Prétraitement EfficientNetV2
-    Normalisation/scale adaptée au backbone EfficientNetV2.
+- EfficientNetV2 preprocessing
+    Normalization/scaling adapted to the EfficientNetV2 backbone.
 
-- Backbone EfficientNetV2B0
-    Réseau convolutionnel pré-entraîné ImageNet (sans la tête finale).
+- EfficientNetV2B0 backbone
+    ImageNet pretrained convolutional network (without the final head).
 
 - GlobalAveragePooling2D
-    Agrège les cartes de features en un vecteur fixe.
+    Aggregates the feature maps into a fixed-size vector.
 
 - Dense (projection)
-    Projection vers la dimension d’embedding embed_dim (ex: 256).
+    Projection to the embedding dimension embed_dim (e.g. 256).
 
 - UnitNormalization (L2)
-    Normalise l’embedding sur la sphère unitaire pour la similarité cosinus.
+    Normalizes the embedding onto the unit sphere for cosine similarity.
 
-- (Entraînement uniquement) Tête de classification
-    Dense + softmax vers n_classes styles.
-    - Deux phases:
-        - Phase 1: entraînement de la tête (backbone gelé).
-        - Phase 2 (optionnel): fine‑tuning des dernières couches du backbone.
+- (Training only) Classification head
+    Dense + softmax to n_classes styles.
+    - Two phases:
+        - Phase 1: training the head (backbone frozen).
+        - Phase 2 (optional): fine-tuning the last layers of the backbone.
 
 - Usage
-    - Retrieval: on garde l’embedding L2 pour comparer les images.
-    - Grad‑CAM: visualisation des zones qui expliquent la similarité.
+    - Retrieval: the L2 embedding is kept to compare images.
+    - Grad-CAM: visualization of the areas that explain the similarity.
 
 ## 9) Notes
 
-- Le script de build dataset est tolérant aux variations de format CSV et peut inférer le label depuis le dossier parent de `filename`.
+- The dataset build script is tolerant of CSV format variations and can infer the label from the parent folder of `filename`.
