@@ -5,7 +5,7 @@
 
 ---
 _version 0.03.25.1710_
-- **Lionel Natarianni**
+- **Lionel Natarianni** lion94.home@gmail.com
 - _Le Wagon teammates_
   - **Emmanuelle**
   - **Lucile**
