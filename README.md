@@ -40,7 +40,7 @@ The pipeline covers:
 
 A video walkthrough of the Streamlit application:
 
-[Watch the demo (Google Drive)](https://drive.google.com/file/d/1ief8Fc82bOv7wFH5htPIoBlI2w_k4W6a/view?usp=sharing)
+[Watch the demo here](https://drive.google.com/file/d/1ief8Fc82bOv7wFH5htPIoBlI2w_k4W6a/view?usp=sharing)
 
 ## Architecture
 
