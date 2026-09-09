@@ -38,7 +38,7 @@ The pipeline covers:
 
 ## Demo
 
-A video walkthrough of the Streamlit application:
+A video walkthrough of the Streamlit application (Paris, Musée d'Orsay live demo):
 
 [Watch the demo here](https://drive.google.com/file/d/1ief8Fc82bOv7wFH5htPIoBlI2w_k4W6a/view?usp=sharing)
 
