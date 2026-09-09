@@ -1,5 +1,6 @@
-<h1 align="center">Art-Xplain</h2>
-<h3 align="center">Stylistic similarity engine for painted artworks</h2>
+<p align="center">
+  <img src="images/artxplain_photo_1.png" alt="Art-Xplain - Stylistic similarity engine for painted artworks" width="100%">
+</p>
 
 
 ---
@@ -10,7 +11,23 @@ _version 0.03.25.1710_
   - **Lucile**
 
 
+## About
+
 Art-Xplain is a Python/TensorFlow project that trains a visual encoder to compare artworks by style similarity.
+
+The application answers one question: given a painting, which artworks of the gallery look stylistically closest, and why?
+
+How it works at runtime:
+
+1. **Upload** — the user drops a painting into the Streamlit interface (`src/front_end/app.py`).
+2. **Encoding** — the trained encoder turns the image into an L2-normalized embedding: an EfficientNetV2 backbone, global average pooling, a dense projection to `embed_dim`, then unit normalization.
+3. **Retrieval** — `StyleRetriever` (`src/retrieval.py`) compares that vector to the gallery embeddings precomputed in `embeddings/vectors.npy` with cosine similarity, and returns the top-k closest paintings.
+4. **Explanation** — Grad-CAM++ (`src/gradcam_similarity.py`) highlights, on both the query and each candidate, the regions that drive the similarity score.
+5. **Map** — the UMAP 2D projection (`latent_2d.npy`) situates the query and its neighbours inside the whole latent space.
+6. **AI commentary** — optionally, an LLM agent (`src/ia_agent.py`, configured in `config/config_agent.yaml`) writes a stylistic analysis of the source painting and of the comparison.
+7. **Memory** — each query enriches an internal DataFrame persisted to `data/internal_artworks.csv`, which accumulates the artworks seen and their similarity history.
+
+Steps 1 to 3 rely on artifacts built offline by the pipeline below (dataset, encoder, embeddings, UMAP); the application itself only loads them.
 
 The pipeline covers:
 - preparing a Keras-ready dataset (train/val/test)
@@ -18,6 +35,13 @@ The pipeline covers:
 - top-k search by cosine similarity
 - visual explanation of similarity with Grad-CAM
 - interactive Streamlit demo
+
+## Demo
+
+A video walkthrough of the Streamlit application:
+
+[Watch the demo here](https://drive.google.com/file/d/1ief8Fc82bOv7wFH5htPIoBlI2w_k4W6a/view?usp=sharing)
+
 ## Architecture
 
 ![Architecture](images/archi-generale.png)
